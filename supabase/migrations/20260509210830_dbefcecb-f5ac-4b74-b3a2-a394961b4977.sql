@@ -1,0 +1,5 @@
+ALTER TABLE public.icp_config
+  ADD COLUMN IF NOT EXISTS revenue_min_usd BIGINT,
+  ADD COLUMN IF NOT EXISTS revenue_max_usd BIGINT,
+  ADD COLUMN IF NOT EXISTS countries_min INTEGER,
+  ADD COLUMN IF NOT EXISTS countries_max INTEGER;
