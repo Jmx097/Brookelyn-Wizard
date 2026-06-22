@@ -1,13 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { researchJobsForLead } from "./import-companies.server";
-
-
-
-
-
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000001";
 
 async function callAI<T = unknown>(
   systemPrompt: string,
@@ -26,9 +21,7 @@ async function callAI<T = unknown>(
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      tools: [
-        { type: "function", function: { name: fnName, parameters: schema } },
-      ],
+      tools: [{ type: "function", function: { name: fnName, parameters: schema } }],
       tool_choice: { type: "function", function: { name: fnName } },
     }),
   });
@@ -60,24 +53,22 @@ async function scrapeWithFirecrawl(url: string): Promise<string | null> {
   }
 }
 
+function defaultIcpText() {
+  return "GoGlobal ICP: companies signaling international expansion (Series B-E funding, opening offices abroad, hiring outside home country).";
+}
+
 async function getIcpFor(userId: string): Promise<Record<string, unknown> | null> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("icp_config")
     .select("*")
     .eq("user_id", userId)
     .maybeSingle();
-  if (data) return data;
-  const { data: fallback } = await supabaseAdmin
-    .from("icp_config")
-    .select("*")
-    .eq("id", SINGLETON_ID)
-    .maybeSingle();
-  return fallback ?? null;
+  if (error) throw new Error(error.message);
+  return data ?? null;
 }
 
 function formatIcp(c: Record<string, unknown> | null): string {
-  if (!c)
-    return "GoGlobal ICP: companies signaling international expansion (Series B-E funding, opening offices abroad, hiring outside home country).";
+  if (!c) return defaultIcpText();
   return `GoGlobal ICP:
 - Industries: ${(c.industries as string[])?.join(", ") || "any"}
 - Funding stages: ${(c.funding_stages as string[])?.join(", ") || "any"}
@@ -98,6 +89,18 @@ Funding amount: ${l.funding_amount ?? "—"}
 Trigger: ${l.trigger_summary ?? "—"}
 Expansion signals: ${((l.expansion_signals as string[]) ?? []).join("; ") || "—"}
 Current fit reasoning: ${l.fit_reasoning ?? "—"}`;
+}
+
+async function getOwnedLead(userId: string, leadId: string) {
+  const { data: lead, error } = await supabaseAdmin
+    .from("leads")
+    .select("*")
+    .eq("id", leadId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!lead) throw new Error("Lead not found");
+  return lead;
 }
 
 const ENRICH_SCHEMA = {
@@ -131,7 +134,8 @@ type EnrichResult = {
 };
 
 export const enrichLead = createServerFn({ method: "POST" })
-  .inputValidator((d) =>
+  .middleware([requireSupabaseAuth])
+  .validator((d) =>
     z
       .object({
         leadId: z.string().uuid(),
@@ -140,25 +144,14 @@ export const enrichLead = createServerFn({ method: "POST" })
       })
       .parse(d),
   )
-  .handler(async ({ data }) => {
-    const { data: lead, error } = await supabaseAdmin
-      .from("leads")
-      .select("*")
-      .eq("id", data.leadId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!lead) throw new Error("Lead not found");
-
+  .handler(async ({ data, context }) => {
+    const lead = await getOwnedLead(context.userId, data.leadId);
 
     const candidateUrls = Array.from(
       new Set(
-        [
-          data.websiteOverride,
-          lead.website as string | null,
-          lead.domain ? `https://${lead.domain}` : null,
-        ]
+        [data.websiteOverride, lead.website as string | null, lead.domain ? `https://${lead.domain}` : null]
           .filter(Boolean)
-          .map((u) => (u as string).startsWith("http") ? (u as string) : `https://${u}`),
+          .map((u) => ((u as string).startsWith("http") ? (u as string) : `https://${u}`)),
       ),
     ).slice(0, 2);
 
@@ -212,27 +205,24 @@ ${data.extraContext || "(none)"}`;
       if (typeof v === "string" && v.trim()) update[f] = v.trim();
     }
     if (Array.isArray(result.expansion_signals) && result.expansion_signals.length) {
-      const merged = Array.from(
-        new Set([...(lead.expansion_signals ?? []), ...result.expansion_signals]),
-      ).slice(0, 20);
+      const merged = Array.from(new Set([...(lead.expansion_signals ?? []), ...result.expansion_signals])).slice(0, 20);
       update.expansion_signals = merged;
     }
 
     const { error: upErr } = await supabaseAdmin
       .from("leads")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .update(update as any)
-      .eq("id", data.leadId);
+      .update(update)
+      .eq("id", data.leadId)
+      .eq("user_id", context.userId);
     if (upErr) throw new Error(upErr.message);
 
     if (result.notes?.trim()) {
       await supabaseAdmin.from("notes").insert({
-        user_id: lead.user_id,
+        user_id: context.userId,
         lead_id: data.leadId,
         body: `[AI enrichment] ${result.notes.trim()}`,
       });
     }
-
 
     return {
       ok: true as const,
@@ -252,19 +242,13 @@ const RESCORE_SCHEMA = {
 };
 
 export const rescoreLead = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ leadId: z.string().uuid() }).parse(d))
-  .handler(async ({ data }) => {
-    const { data: lead, error } = await supabaseAdmin
-      .from("leads")
-      .select("*")
-      .eq("id", data.leadId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!lead) throw new Error("Lead not found");
+  .middleware([requireSupabaseAuth])
+  .validator((d) => z.object({ leadId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const lead = await getOwnedLead(context.userId, data.leadId);
 
-    const icp = await getIcpFor(lead.user_id);
+    const icp = await getIcpFor(context.userId);
     const icpText = formatIcp(icp);
-
 
     const sys = `You are a B2B prospect scorer for GoGlobal (Employer of Record / global expansion).
 
@@ -288,24 +272,18 @@ Score the company below 0-100 against this ICP. Reward fresh international-expan
         fit_reasoning: result.fit_reasoning,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", data.leadId);
+      .eq("id", data.leadId)
+      .eq("user_id", context.userId);
     if (upErr) throw new Error(upErr.message);
 
     return { ok: true, fit_score: score, fit_reasoning: result.fit_reasoning };
   });
 
-const SINGLETON_USER_ID = "00000000-0000-0000-0000-000000000001";
-
 export const researchJobs = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ leadId: z.string().uuid() }).parse(d))
-  .handler(async ({ data }) => {
-    const { data: lead } = await supabaseAdmin
-      .from("leads")
-      .select("user_id")
-      .eq("id", data.leadId)
-      .maybeSingle();
-    const userId = (lead?.user_id as string | undefined) ?? SINGLETON_USER_ID;
-    const counts = await researchJobsForLead(userId, data.leadId);
+  .middleware([requireSupabaseAuth])
+  .validator((d) => z.object({ leadId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    await getOwnedLead(context.userId, data.leadId);
+    const counts = await researchJobsForLead(context.userId, data.leadId);
     return { ok: true as const, ...counts };
   });
-

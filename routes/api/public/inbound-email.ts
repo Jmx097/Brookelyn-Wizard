@@ -6,22 +6,21 @@ import { processDigestForUser } from "@/lib/ingest.functions";
 // Accepts inbound email webhooks from Postmark, SendGrid Inbound Parse,
 // Cloudflare Email Workers, Mailgun, etc. Body shape is normalized below.
 // Auth: shared secret via `x-inbound-secret` header OR `?secret=` query string.
+// Routing: prefers explicit inbound_email_routes matches by destination address.
+// Fallback: if exactly one user exists in icp_config, route there for backward compatibility.
 
 const PayloadSchema = z
   .object({
-    // generic
     to: z.string().optional(),
     from: z.string().optional(),
     subject: z.string().optional(),
     text: z.string().optional(),
     html: z.string().optional(),
-    // Postmark
     To: z.string().optional(),
     From: z.string().optional(),
     Subject: z.string().optional(),
     TextBody: z.string().optional(),
     HtmlBody: z.string().optional(),
-    // SendGrid Inbound Parse (form-encoded normally; included if JSON)
     envelope: z.unknown().optional(),
   })
   .passthrough();
@@ -41,14 +40,44 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-async function resolveUserId(): Promise<string | null> {
-  // Single-user app — route inbound mail to the only configured owner.
-  const { data: rows } = await supabaseAdmin
+function normalizeEmailAddress(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0]?.trim().toLowerCase() ?? null;
+}
+
+async function resolveUserId(toValue: string | undefined): Promise<string | null> {
+  const normalizedTo = normalizeEmailAddress(toValue);
+
+  if (normalizedTo) {
+    const { data: route, error: routeError } = await supabaseAdmin
+      .from("inbound_email_routes")
+      .select("user_id")
+      .eq("route_key", normalizedTo)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (routeError) {
+      console.error("inbound-email route lookup failed", routeError);
+    }
+
+    if (route?.user_id) {
+      return route.user_id as string;
+    }
+  }
+
+  const { data: rows, error } = await supabaseAdmin
     .from("icp_config")
     .select("user_id")
     .not("user_id", "is", null)
     .limit(2);
-  if (rows && rows.length >= 1) return rows[0].user_id as string;
+
+  if (error) {
+    console.error("inbound-email fallback user lookup failed", error);
+    return null;
+  }
+
+  if (rows && rows.length === 1) return rows[0].user_id as string;
   return null;
 }
 
@@ -89,15 +118,14 @@ export const Route = createFileRoute("/api/public/inbound-email")({
           return Response.json({ ok: true, skipped: "empty body" });
         }
 
-        const userId = await resolveUserId();
+        const toValue = p.to ?? p.To;
+        const userId = await resolveUserId(toValue);
         if (!userId) {
           return new Response("No user mapping for inbound address", { status: 404 });
         }
 
         const from = (p.from ?? p.From ?? "").toLowerCase();
 
-        // Detect Gmail forwarding confirmation emails so the user can grab
-        // the verification code from the app instead of needing inbox access.
         if (
           from.includes("forwarding-noreply@google.com") ||
           /gmail forwarding confirmation/i.test(subject)
@@ -115,11 +143,6 @@ export const Route = createFileRoute("/api/public/inbound-email")({
           return Response.json({ ok: true, gmail_confirmation: true, code: codeMatch?.[1] ?? null });
         }
 
-        // Detect LinkedIn reply notifications and auto-mark the matching
-        // outreach row as `replied`. LinkedIn notification emails come from
-        // *@linkedin.com with subjects like:
-        //   "Jane Doe sent you a message"
-        //   "You have a new message from Jane Doe"
         if (from.includes("linkedin.com")) {
           const replyMatch =
             subject.match(/^(.+?)\s+sent you a (?:message|new message)/i) ??
@@ -143,7 +166,8 @@ export const Route = createFileRoute("/api/public/inbound-email")({
                   replied_at: now,
                   last_status_change_at: now,
                 })
-                .eq("id", matches[0].id);
+                .eq("id", matches[0].id)
+                .eq("user_id", userId);
               return Response.json({
                 ok: true,
                 linkedin_reply_detected: true,
@@ -158,7 +182,6 @@ export const Route = createFileRoute("/api/public/inbound-email")({
             });
           }
         }
-
 
         try {
           const stats = await processDigestForUser(userId, combined);

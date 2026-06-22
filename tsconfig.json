@@ -1,19 +1,33 @@
 {
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "eslint.config.js"],
+  "include": [
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "hooks/**/*.ts",
+    "hooks/**/*.tsx",
+    "integrations/**/*.ts",
+    "integrations/**/*.tsx",
+    "lib/**/*.ts",
+    "lib/**/*.tsx",
+    "routes/**/*.ts",
+    "routes/**/*.tsx",
+    "router.tsx",
+    "routeTree.gen.ts",
+    "server.ts",
+    "start.ts",
+    "vite.config.ts",
+    "eslint.config.js"
+  ],
   "compilerOptions": {
     "target": "ES2022",
     "jsx": "react-jsx",
     "module": "ESNext",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client"],
-
-    /* Bundler mode */
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": false,
     "noEmit": true,
-
-    /* Linting */
+    "baseUrl": ".",
     "skipLibCheck": true,
     "strict": true,
     "noUnusedLocals": false,
@@ -21,7 +35,7 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./*"]
     }
   }
 }

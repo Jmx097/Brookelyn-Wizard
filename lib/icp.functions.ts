@@ -1,18 +1,47 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000001";
-
-export const getIcpConfig = createServerFn({ method: "GET" }).handler(async () => {
-  const { data, error } = await supabaseAdmin
+async function getOrCreateOwnedIcpConfig(userId: string) {
+  const { data: existing, error: readError } = await supabaseAdmin
     .from("icp_config")
     .select("*")
-    .eq("id", SINGLETON_ID)
+    .eq("user_id", userId)
     .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data;
-});
+
+  if (readError) throw new Error(readError.message);
+  if (existing) return existing;
+
+  const { data: inserted, error: insertError } = await supabaseAdmin
+    .from("icp_config")
+    .insert({
+      user_id: userId,
+      industries: [],
+      funding_stages: [],
+      regions: [],
+      company_size_min: null,
+      company_size_max: null,
+      revenue_min_usd: null,
+      revenue_max_usd: null,
+      countries_min: null,
+      countries_max: null,
+      scoring_prompt: "",
+      outreach_voice: null,
+      auto_enrich_contacts_min_score: 0,
+    })
+    .select("*")
+    .single();
+
+  if (insertError) throw new Error(insertError.message);
+  return inserted;
+}
+
+export const getIcpConfig = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    return await getOrCreateOwnedIcpConfig(context.userId);
+  });
 
 const UpdateSchema = z.object({
   industries: z.array(z.string().trim().min(1).max(80)).max(50),
@@ -29,14 +58,17 @@ const UpdateSchema = z.object({
   auto_enrich_contacts_min_score: z.number().int().min(0).max(100).optional(),
 });
 
-
 export const updateIcpConfig = createServerFn({ method: "POST" })
-  .inputValidator((data) => UpdateSchema.parse(data))
-  .handler(async ({ data }) => {
+  .middleware([requireSupabaseAuth])
+  .validator((data) => UpdateSchema.parse(data))
+  .handler(async ({ data, context }) => {
+    const current = await getOrCreateOwnedIcpConfig(context.userId);
+
     const { error } = await supabaseAdmin
       .from("icp_config")
       .update({ ...data, updated_at: new Date().toISOString() })
-      .eq("id", SINGLETON_ID);
+      .eq("id", current.id)
+      .eq("user_id", context.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });

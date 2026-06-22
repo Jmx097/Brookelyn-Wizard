@@ -3,8 +3,6 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000001";
-
 type ExtractedLead = {
   company_name: string;
   website?: string | null;
@@ -88,17 +86,19 @@ const LEAD_SCHEMA = {
   required: ["leads"],
 };
 
+function defaultIcpContext(): string {
+  return "GoGlobal ICP: companies signaling international expansion (Series B-E funding, opening offices abroad, hiring outside home country).";
+}
+
 async function getIcpContext(userId: string): Promise<string> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("icp_config")
     .select("*")
     .eq("user_id", userId)
     .maybeSingle();
-  if (!data) {
-    const { data: any2 } = await supabaseAdmin.from("icp_config").select("*").eq("id", SINGLETON_ID).maybeSingle();
-    if (!any2) return "GoGlobal ICP: companies signaling international expansion (Series B-E funding, opening offices abroad, hiring outside home country).";
-    return formatIcp(any2);
-  }
+
+  if (error) throw new Error(error.message);
+  if (!data) return defaultIcpContext();
   return formatIcp(data);
 }
 
@@ -117,7 +117,6 @@ async function persistLeads(userId: string, leads: ExtractedLead[], source: "ale
   for (const l of leads) {
     if (!l.company_name || l.fit_score == null) continue;
 
-    // dedupe by company_name (case-insensitive) for this user
     const { data: existing } = await supabaseAdmin
       .from("leads")
       .select("id, fit_score")
@@ -144,7 +143,8 @@ async function persistLeads(userId: string, leads: ExtractedLead[], source: "ale
           expansion_signals: l.expansion_signals ?? [],
           updated_at: new Date().toISOString(),
         })
-        .eq("id", leadId);
+        .eq("id", leadId)
+        .eq("user_id", userId);
       updated++;
     } else {
       const { data: ins, error } = await supabaseAdmin
@@ -188,13 +188,11 @@ async function persistLeads(userId: string, leads: ExtractedLead[], source: "ale
   return { created, updated };
 }
 
-// --- Firecrawl: pull full article text from URLs found in the digest ---
 function extractUrls(text: string): string[] {
   const re = /https?:\/\/[^\s)<>"']+/g;
   const raw = text.match(re) ?? [];
   const cleaned = raw
     .map((u) => u.replace(/[.,;:)\]]+$/, ""))
-    // Skip Google tracking/unsubscribe noise
     .filter((u) => !/google\.com\/(alerts|url\?)|googleadservices|unsubscribe/i.test(u));
   return Array.from(new Set(cleaned)).slice(0, 20);
 }
@@ -222,7 +220,6 @@ async function scrapeWithFirecrawl(url: string): Promise<{ url: string; title?: 
 export async function processDigestForUser(userId: string, text: string) {
   const icp = await getIcpContext(userId);
 
-  // 1. Pull every linked article body via Firecrawl so the AI sees the FULL story, not just the headline.
   const urls = extractUrls(text);
   const scraped = (await Promise.all(urls.map(scrapeWithFirecrawl))).filter(Boolean) as Array<{ url: string; title?: string; markdown?: string }>;
 
@@ -255,7 +252,7 @@ Skip pure consumer news, mega-cap-only M&A, or generic market commentary. Return
 
 export const processDigest = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d) => z.object({ text: z.string().min(20).max(200000) }).parse(d))
+  .validator((d) => z.object({ text: z.string().min(20).max(200000) }).parse(d))
   .handler(async ({ data, context }) => {
     return processDigestForUser(context.userId, data.text);
   });
@@ -294,7 +291,8 @@ Use your knowledge of recent (last 30 days) news to find companies matching this
         await supabaseAdmin
           .from("search_queries")
           .update({ last_run_at: new Date().toISOString() })
-          .eq("id", q.id);
+          .eq("id", q.id)
+          .eq("user_id", userId);
       } catch (err) {
         console.error(`Search query failed: ${q.query}`, err);
       }

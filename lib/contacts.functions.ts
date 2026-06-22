@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { discoverContactsForCompany } from "./contacts.server";
 
@@ -16,35 +17,48 @@ export type LeadContactRow = {
   created_at: string;
 };
 
+async function getOwnedLead(userId: string, leadId: string) {
+  const { data: lead, error } = await supabaseAdmin
+    .from("leads")
+    .select("id, user_id, company_name, contacts_enriched_at")
+    .eq("id", leadId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!lead) throw new Error("Lead not found");
+  return lead;
+}
+
 export const listLeadContacts = createServerFn({ method: "GET" })
-  .inputValidator((d) => z.object({ leadId: z.string().uuid() }).parse(d))
-  .handler(async ({ data }) => {
+  .middleware([requireSupabaseAuth])
+  .validator((d) => z.object({ leadId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    await getOwnedLead(context.userId, data.leadId);
+
     const { data: rows, error } = await supabaseAdmin
       .from("lead_contacts")
       .select("*")
       .eq("lead_id", data.leadId)
+      .eq("user_id", context.userId)
       .order("relevance_score", { ascending: false });
     if (error) throw new Error(error.message);
     return (rows ?? []) as LeadContactRow[];
   });
 
 export const enrichContacts = createServerFn({ method: "POST" })
-  .inputValidator((d) => z.object({ leadId: z.string().uuid(), force: z.boolean().optional() }).parse(d))
-  .handler(async ({ data }) => {
-    const { data: lead, error } = await supabaseAdmin
-      .from("leads")
-      .select("id, user_id, company_name, contacts_enriched_at")
-      .eq("id", data.leadId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!lead) throw new Error("Lead not found");
+  .middleware([requireSupabaseAuth])
+  .validator((d) => z.object({ leadId: z.string().uuid(), force: z.boolean().optional() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const lead = await getOwnedLead(context.userId, data.leadId);
 
-    // Cache: if already enriched and not forced, return existing
     if (!data.force && lead.contacts_enriched_at) {
-      const { data: existing } = await supabaseAdmin
+      const { data: existing, error: existingError } = await supabaseAdmin
         .from("lead_contacts")
         .select("*")
-        .eq("lead_id", lead.id);
+        .eq("lead_id", lead.id)
+        .eq("user_id", context.userId);
+      if (existingError) throw new Error(existingError.message);
       if (existing && existing.length > 0) {
         return { ok: true as const, count: existing.length, cached: true };
       }
@@ -53,18 +67,19 @@ export const enrichContacts = createServerFn({ method: "POST" })
     const discovered = await discoverContactsForCompany(lead.company_name);
 
     if (discovered.length === 0) {
-      await supabaseAdmin
+      const { error: updateError } = await supabaseAdmin
         .from("leads")
         .update({ contacts_enriched_at: new Date().toISOString() })
-        .eq("id", lead.id);
+        .eq("id", lead.id)
+        .eq("user_id", context.userId);
+      if (updateError) throw new Error(updateError.message);
       return { ok: true as const, count: 0, cached: false };
     }
 
-    // Upsert each (lead_id, linkedin_url) unique
     for (const c of discovered) {
-      await supabaseAdmin.from("lead_contacts").upsert(
+      const { error: upsertError } = await supabaseAdmin.from("lead_contacts").upsert(
         {
-          user_id: lead.user_id,
+          user_id: context.userId,
           lead_id: lead.id,
           full_name: c.full_name,
           title: c.title,
@@ -76,12 +91,15 @@ export const enrichContacts = createServerFn({ method: "POST" })
         },
         { onConflict: "lead_id,linkedin_url", ignoreDuplicates: false },
       );
+      if (upsertError) throw new Error(upsertError.message);
     }
 
-    await supabaseAdmin
+    const { error: finalUpdateError } = await supabaseAdmin
       .from("leads")
       .update({ contacts_enriched_at: new Date().toISOString() })
-      .eq("id", lead.id);
+      .eq("id", lead.id)
+      .eq("user_id", context.userId);
+    if (finalUpdateError) throw new Error(finalUpdateError.message);
 
     return { ok: true as const, count: discovered.length, cached: false };
   });
@@ -98,7 +116,8 @@ const SAVE_SLOTS = z.enum([
 ]);
 
 export const saveContactToLeadSlot = createServerFn({ method: "POST" })
-  .inputValidator((d) =>
+  .middleware([requireSupabaseAuth])
+  .validator((d) =>
     z
       .object({
         leadId: z.string().uuid(),
@@ -107,11 +126,15 @@ export const saveContactToLeadSlot = createServerFn({ method: "POST" })
       })
       .parse(d),
   )
-  .handler(async ({ data }) => {
+  .handler(async ({ data, context }) => {
+    await getOwnedLead(context.userId, data.leadId);
+
     const { data: c, error } = await supabaseAdmin
       .from("lead_contacts")
       .select("full_name, linkedin_url")
       .eq("id", data.contactId)
+      .eq("lead_id", data.leadId)
+      .eq("user_id", context.userId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!c) throw new Error("Contact not found");
@@ -125,9 +148,9 @@ export const saveContactToLeadSlot = createServerFn({ method: "POST" })
     };
     const { error: upErr } = await supabaseAdmin
       .from("leads")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .update(update as any)
-      .eq("id", data.leadId);
+      .update(update)
+      .eq("id", data.leadId)
+      .eq("user_id", context.userId);
     if (upErr) throw new Error(upErr.message);
     return { ok: true as const };
   });

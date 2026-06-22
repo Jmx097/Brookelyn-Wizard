@@ -1,8 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-
-const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
 export const CONTACT_STATUSES = [
   "not_responded",
@@ -32,17 +31,28 @@ export type ContactStatusRow = {
   updated_at: string;
 };
 
-export const listContactStatuses = createServerFn({ method: "GET" }).handler(
-  async () => {
+async function assertOwnedLead(userId: string, leadId: string) {
+  const { data: lead, error } = await supabaseAdmin
+    .from("leads")
+    .select("id")
+    .eq("id", leadId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!lead) throw new Error("Lead not found");
+}
+
+export const listContactStatuses = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
     const { data, error } = await supabaseAdmin
       .from("contact_status")
       .select("*")
-      .eq("user_id", DEMO_USER_ID)
+      .eq("user_id", context.userId)
       .limit(2000);
     if (error) throw new Error(error.message);
     return (data ?? []) as ContactStatusRow[];
-  },
-);
+  });
 
 const UpsertInput = z.object({
   leadId: z.string().uuid(),
@@ -51,13 +61,16 @@ const UpsertInput = z.object({
 });
 
 export const upsertContactStatus = createServerFn({ method: "POST" })
-  .inputValidator((d) => UpsertInput.parse(d))
-  .handler(async ({ data }) => {
+  .middleware([requireSupabaseAuth])
+  .validator((d) => UpsertInput.parse(d))
+  .handler(async ({ data, context }) => {
+    await assertOwnedLead(context.userId, data.leadId);
+
     const { data: row, error } = await supabaseAdmin
       .from("contact_status")
       .upsert(
         {
-          user_id: DEMO_USER_ID,
+          user_id: context.userId,
           lead_id: data.leadId,
           contact_name: data.contactName,
           status: data.status,

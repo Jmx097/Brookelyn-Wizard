@@ -1,11 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { EnrichSchema } from "./import-companies.schema";
 import {
   enrichImportedCompanyForUser,
   getImportErrorMessage,
 } from "./import-companies.server";
-
-const SINGLETON_USER_ID = "00000000-0000-0000-0000-000000000001";
 
 type EnrichFailureResult = {
   ok: false;
@@ -18,10 +17,11 @@ type EnrichFailureResult = {
 };
 
 export const enrichImportedCompany = createServerFn({ method: "POST" })
-  .inputValidator((d) => EnrichSchema.parse(d))
-  .handler(async ({ data }): Promise<Awaited<ReturnType<typeof enrichImportedCompanyForUser>> | EnrichFailureResult> => {
+  .middleware([requireSupabaseAuth])
+  .validator((d) => EnrichSchema.parse(d))
+  .handler(async ({ data, context }): Promise<Awaited<ReturnType<typeof enrichImportedCompanyForUser>> | EnrichFailureResult> => {
     try {
-      return await enrichImportedCompanyForUser(SINGLETON_USER_ID, data);
+      return await enrichImportedCompanyForUser(context.userId, data);
     } catch (error) {
       console.error("Company import failed", {
         company: data.company_name,

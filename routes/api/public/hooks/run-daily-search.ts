@@ -2,9 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { discoverContactsForCompany } from "@/lib/contacts.server";
 
-
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000001";
-
 type ExtractedLead = {
   company_name: string;
   website?: string | null;
@@ -78,7 +75,8 @@ async function callAI(systemPrompt: string, userPrompt: string) {
 }
 
 function formatIcp(c: Record<string, unknown> | null): string {
-  if (!c) return "GoGlobal ICP: companies signaling international expansion (Series B-E funding, opening offices abroad, hiring outside home country).";
+  if (!c)
+    return "GoGlobal ICP: companies signaling international expansion (Series B-E funding, opening offices abroad, hiring outside home country).";
   return `GoGlobal ICP:
 - Industries: ${(c.industries as string[])?.join(", ") || "any"}
 - Funding stages: ${(c.funding_stages as string[])?.join(", ") || "any"}
@@ -92,37 +90,48 @@ async function persistLeads(userId: string, leads: ExtractedLead[], autoEnrichMi
   for (const l of leads) {
     if (!l.company_name || l.fit_score == null) continue;
     const { data: existing } = await supabaseAdmin
-      .from("leads").select("id, fit_score").eq("user_id", userId)
-      .ilike("company_name", l.company_name).maybeSingle();
+      .from("leads")
+      .select("id, fit_score")
+      .eq("user_id", userId)
+      .ilike("company_name", l.company_name)
+      .maybeSingle();
     let leadId: string;
     let isNew = false;
     const finalScore = Math.round(l.fit_score);
     if (existing) {
       leadId = existing.id;
-      await supabaseAdmin.from("leads").update({
-        trigger_summary: l.trigger_summary,
-        fit_score: Math.max(existing.fit_score ?? 0, finalScore),
-        fit_reasoning: l.fit_reasoning,
-        expansion_signals: l.expansion_signals ?? [],
-        updated_at: new Date().toISOString(),
-      }).eq("id", leadId);
+      await supabaseAdmin
+        .from("leads")
+        .update({
+          trigger_summary: l.trigger_summary,
+          fit_score: Math.max(existing.fit_score ?? 0, finalScore),
+          fit_reasoning: l.fit_reasoning,
+          expansion_signals: l.expansion_signals ?? [],
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", leadId)
+        .eq("user_id", userId);
     } else {
-      const { data: ins } = await supabaseAdmin.from("leads").insert({
-        user_id: userId,
-        company_name: l.company_name,
-        website: l.website ?? null,
-        domain: l.domain ?? null,
-        hq: l.hq ?? null,
-        industry: l.industry ?? null,
-        company_size: l.company_size ?? null,
-        funding_stage: l.funding_stage ?? null,
-        funding_amount: l.funding_amount ?? null,
-        trigger_summary: l.trigger_summary,
-        fit_score: finalScore,
-        fit_reasoning: l.fit_reasoning,
-        expansion_signals: l.expansion_signals ?? [],
-        status: "new",
-      }).select("id").single();
+      const { data: ins } = await supabaseAdmin
+        .from("leads")
+        .insert({
+          user_id: userId,
+          company_name: l.company_name,
+          website: l.website ?? null,
+          domain: l.domain ?? null,
+          hq: l.hq ?? null,
+          industry: l.industry ?? null,
+          company_size: l.company_size ?? null,
+          funding_stage: l.funding_stage ?? null,
+          funding_amount: l.funding_amount ?? null,
+          trigger_summary: l.trigger_summary,
+          fit_score: finalScore,
+          fit_reasoning: l.fit_reasoning,
+          expansion_signals: l.expansion_signals ?? [],
+          status: "new",
+        })
+        .select("id")
+        .single();
       if (!ins) continue;
       leadId = ins.id;
       created++;
@@ -141,7 +150,6 @@ async function persistLeads(userId: string, leads: ExtractedLead[], autoEnrichMi
       });
     }
 
-    // Auto-enrich contacts for new high-fit leads
     if (isNew && autoEnrichMin > 0 && finalScore >= autoEnrichMin) {
       try {
         const discovered = await discoverContactsForCompany(l.company_name);
@@ -164,7 +172,8 @@ async function persistLeads(userId: string, leads: ExtractedLead[], autoEnrichMi
         await supabaseAdmin
           .from("leads")
           .update({ contacts_enriched_at: new Date().toISOString() })
-          .eq("id", leadId);
+          .eq("id", leadId)
+          .eq("user_id", userId);
       } catch (e) {
         console.error(`Auto-enrich failed for ${l.company_name}:`, (e as Error).message);
       }
@@ -173,11 +182,34 @@ async function persistLeads(userId: string, leads: ExtractedLead[], autoEnrichMi
   return created;
 }
 
+function authorizeScheduler(request: Request) {
+  const expected = process.env.RUN_DAILY_SEARCH_SECRET;
+  if (!expected) {
+    return new Response("Server not configured", { status: 500 });
+  }
+
+  const url = new URL(request.url);
+  const provided =
+    request.headers.get("x-run-daily-search-secret") ??
+    request.headers.get("x-webhook-secret") ??
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+    url.searchParams.get("secret") ??
+    "";
+
+  if (provided !== expected) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  return null;
+}
 
 export const Route = createFileRoute("/api/public/hooks/run-daily-search")({
   server: {
     handlers: {
-      POST: async () => {
+      POST: async ({ request }) => {
+        const authError = authorizeScheduler(request);
+        if (authError) return authError;
+
         const { data: queries } = await supabaseAdmin
           .from("search_queries")
           .select("*")
@@ -195,7 +227,10 @@ export const Route = createFileRoute("/api/public/hooks/run-daily-search")({
 
         for (const [userId, userQueries] of byUser) {
           const { data: icp } = await supabaseAdmin
-            .from("icp_config").select("*").eq("user_id", userId).maybeSingle();
+            .from("icp_config")
+            .select("*")
+            .eq("user_id", userId)
+            .maybeSingle();
           const icpText = formatIcp(icp ?? null);
           const autoEnrichMin =
             (icp as { auto_enrich_contacts_min_score?: number } | null)?.auto_enrich_contacts_min_score ?? 0;
@@ -210,8 +245,11 @@ Use your knowledge of recent (last 30 days) news to find companies matching this
               totalCreated += await persistLeads(userId, result.leads ?? [], autoEnrichMin);
 
               totalQueries++;
-              await supabaseAdmin.from("search_queries")
-                .update({ last_run_at: new Date().toISOString() }).eq("id", q.id);
+              await supabaseAdmin
+                .from("search_queries")
+                .update({ last_run_at: new Date().toISOString() })
+                .eq("id", q.id)
+                .eq("user_id", userId);
             } catch (err) {
               console.error(`Daily search failed for query ${q.id}:`, err);
             }

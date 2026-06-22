@@ -1,8 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-
-const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
 const StatusEnum = z.enum([
   "queued",
@@ -22,15 +21,29 @@ const MarkSentInput = z.object({
   messageText: z.string().max(5000).optional().nullable(),
 });
 
+async function assertOwnedLead(userId: string, leadId: string) {
+  const { data: lead, error } = await supabaseAdmin
+    .from("leads")
+    .select("id")
+    .eq("id", leadId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!lead) throw new Error("Lead not found");
+}
+
 export const markOutreachSent = createServerFn({ method: "POST" })
-  .inputValidator((d) => MarkSentInput.parse(d))
-  .handler(async ({ data }) => {
+  .middleware([requireSupabaseAuth])
+  .validator((d) => MarkSentInput.parse(d))
+  .handler(async ({ data, context }) => {
+    await assertOwnedLead(context.userId, data.leadId);
+
     const now = new Date().toISOString();
     const { data: row, error } = await supabaseAdmin
       .from("linkedin_outreach")
       .upsert(
         {
-          user_id: DEMO_USER_ID,
+          user_id: context.userId,
           lead_id: data.leadId,
           company_name: data.companyName,
           contact_name: data.contactName,
@@ -56,8 +69,9 @@ const UpdateStatusInput = z.object({
 });
 
 export const updateOutreachStatus = createServerFn({ method: "POST" })
-  .inputValidator((d) => UpdateStatusInput.parse(d))
-  .handler(async ({ data }) => {
+  .middleware([requireSupabaseAuth])
+  .validator((d) => UpdateStatusInput.parse(d))
+  .handler(async ({ data, context }) => {
     const now = new Date().toISOString();
     const patch: {
       status: typeof data.status;
@@ -76,7 +90,7 @@ export const updateOutreachStatus = createServerFn({ method: "POST" })
       .from("linkedin_outreach")
       .update(patch)
       .eq("id", data.id)
-      .eq("user_id", DEMO_USER_ID)
+      .eq("user_id", context.userId)
       .select()
       .single();
     if (error) throw new Error(error.message);
@@ -84,11 +98,12 @@ export const updateOutreachStatus = createServerFn({ method: "POST" })
   });
 
 export const listOutreach = createServerFn({ method: "GET" })
-  .handler(async () => {
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
     const { data, error } = await supabaseAdmin
       .from("linkedin_outreach")
       .select("*")
-      .eq("user_id", DEMO_USER_ID)
+      .eq("user_id", context.userId)
       .order("last_status_change_at", { ascending: false })
       .limit(1000);
     if (error) throw new Error(error.message);

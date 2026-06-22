@@ -1,7 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const InputSchema = z.object({
+  leadId: z.string().uuid().optional().nullable(),
   companyName: z.string(),
   industry: z.string().optional().nullable(),
   hq: z.string().optional().nullable(),
@@ -66,9 +69,24 @@ export type OutreachMessages = {
   linkedinMessage: string;
 };
 
+async function assertOwnedLead(userId: string, leadId: string | null | undefined) {
+  if (!leadId) return;
+  const { data: lead, error } = await supabaseAdmin
+    .from("leads")
+    .select("id")
+    .eq("id", leadId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!lead) throw new Error("Lead not found");
+}
+
 export const generateOutreach = createServerFn({ method: "POST" })
-  .inputValidator((data) => InputSchema.parse(data))
-  .handler(async ({ data }): Promise<OutreachMessages> => {
+  .middleware([requireSupabaseAuth])
+  .validator((data) => InputSchema.parse(data))
+  .handler(async ({ data, context }): Promise<OutreachMessages> => {
+    await assertOwnedLead(context.userId, data.leadId);
+
     const apiKey = process.env.LOVABLE_API_KEY;
     if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
 
@@ -154,7 +172,6 @@ Role: ${data.contactRole}`;
     const args = call?.function?.arguments;
     if (!args) throw new Error("No tool call returned");
     const parsed = JSON.parse(args) as OutreachMessages;
-    // Professional tone: strip exclamation points from the LinkedIn DM.
     const stripBangs = (s: string) =>
       s.replace(/!+/g, ".").replace(/\.{2,}/g, ".").replace(/\s+\./g, ".").trim();
     return { ...parsed, linkedinMessage: stripBangs(parsed.linkedinMessage) };

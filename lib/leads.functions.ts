@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const ROLE_COLUMNS = {
@@ -30,9 +31,24 @@ const UpdateSchema = z.object({
   linkedinUrl: z.union([linkedInUrl, z.literal("")]).optional().default(""),
 });
 
+async function assertOwnedLead(userId: string, leadId: string) {
+  const { data: lead, error } = await supabaseAdmin
+    .from("leads")
+    .select("id")
+    .eq("id", leadId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!lead) throw new Error("Lead not found");
+}
+
 export const updateLeadContact = createServerFn({ method: "POST" })
-  .inputValidator((input) => UpdateSchema.parse(input))
-  .handler(async ({ data }) => {
+  .middleware([requireSupabaseAuth])
+  .validator((input) => UpdateSchema.parse(input))
+  .handler(async ({ data, context }) => {
+    await assertOwnedLead(context.userId, data.leadId);
+
     const cols = ROLE_COLUMNS[data.role];
     const name = data.name?.trim() || null;
     const link = data.linkedinUrl?.trim() || null;
@@ -43,9 +59,9 @@ export const updateLeadContact = createServerFn({ method: "POST" })
 
     const { error } = await supabaseAdmin
       .from("leads")
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .update(update as any)
-      .eq("id", data.leadId);
+      .update(update)
+      .eq("id", data.leadId)
+      .eq("user_id", context.userId);
 
     if (error) throw new Error(error.message);
     return { ok: true };

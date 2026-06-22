@@ -1,6 +1,6 @@
 // Bright Data SERP-based LinkedIn contact discovery.
-// Uses Google site:linkedin.com/in queries via Bright Data SERP API.
-// Configure with BRIGHTDATA_API_KEY (required) and BRIGHTDATA_SERP_ZONE (optional, default "serp_api1").
+// Uses Google site:linkedin.com/in queries via Bright Data Web Access API.
+// Configure with BRIGHTDATA_API_KEY (required) and BRIGHTDATA_SERP_ZONE (required for production, e.g. "linkedin_v1").
 
 export type DiscoveredContact = {
   full_name: string;
@@ -9,6 +9,22 @@ export type DiscoveredContact = {
   location: string | null;
   seniority: string | null;
   relevance_score: number;
+};
+
+type BrightDataOrganicResult = {
+  title?: string;
+  link?: string;
+  description?: string;
+};
+
+type BrightDataOuterResponse = {
+  status_code?: number;
+  headers?: Record<string, string>;
+  body?: string;
+};
+
+type BrightDataParsedBody = {
+  organic?: BrightDataOrganicResult[];
 };
 
 const ROLE_QUERIES: { label: string; q: string; seniority: string; boost: number }[] = [
@@ -30,12 +46,38 @@ function parseLinkedinTitle(raw: string): { name: string; title: string | null }
   return { name, title: titlePart || null };
 }
 
+function parseBrightDataOrganicPayload(text: string): BrightDataOrganicResult[] {
+  let outer: BrightDataOuterResponse;
+  try {
+    outer = JSON.parse(text) as BrightDataOuterResponse;
+  } catch {
+    throw new Error("Bright Data returned a non-JSON outer response");
+  }
+
+  if (!outer.body) {
+    throw new Error("Bright Data response was missing body payload");
+  }
+
+  let inner: BrightDataParsedBody;
+  try {
+    inner = JSON.parse(outer.body) as BrightDataParsedBody;
+  } catch {
+    throw new Error("Bright Data response body was not valid parsed JSON");
+  }
+
+  return (inner.organic || [])
+    .filter((r) => r.link && r.title)
+    .map((r) => ({ title: r.title!, link: r.link!, description: r.description }));
+}
+
 async function brightDataSerp(query: string): Promise<Array<{ title: string; link: string; description?: string }>> {
   const key = process.env.BRIGHTDATA_API_KEY;
   if (!key) throw new Error("BRIGHTDATA_API_KEY is not configured");
-  const zone = process.env.BRIGHTDATA_SERP_ZONE || "serp_api1";
 
-  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=10&brd_json=1`;
+  const zone = process.env.BRIGHTDATA_SERP_ZONE;
+  if (!zone) throw new Error("BRIGHTDATA_SERP_ZONE is not configured");
+
+  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 
   const res = await fetch("https://api.brightdata.com/request", {
     method: "POST",
@@ -43,24 +85,21 @@ async function brightDataSerp(query: string): Promise<Array<{ title: string; lin
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ zone, url, format: "raw" }),
+    body: JSON.stringify({
+      zone,
+      url,
+      format: "json",
+      data_format: "parsed",
+    }),
   });
 
+  const text = await res.text();
+
   if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Bright Data SERP ${res.status}: ${txt.slice(0, 300)}`);
+    throw new Error(`Bright Data SERP ${res.status}: ${text.slice(0, 300)}`);
   }
 
-  const text = await res.text();
-  let json: { organic?: Array<{ title?: string; link?: string; description?: string }> } = {};
-  try {
-    json = JSON.parse(text);
-  } catch {
-    throw new Error("Bright Data SERP returned non-JSON. Make sure your zone supports brd_json (SERP API zone).");
-  }
-  return (json.organic || [])
-    .filter((r) => r.link && r.title)
-    .map((r) => ({ title: r.title!, link: r.link!, description: r.description }));
+  return parseBrightDataOrganicPayload(text);
 }
 
 export async function discoverContactsForCompany(companyName: string): Promise<DiscoveredContact[]> {
