@@ -1,6 +1,6 @@
-import { FormEvent, useMemo, useState } from "react";
-import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { Loader2, Mail } from "lucide-react";
+import { FormEvent, useState } from "react";
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
+import { Loader2, Lock, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,17 +14,13 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
+  const navigate = useNavigate();
   const { user, loading } = useAuth();
   const { redirect } = Route.useSearch();
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  const emailRedirectTo = useMemo(() => {
-    if (typeof window === "undefined") return undefined;
-    return `${window.location.origin}${redirect || "/linkedin-dashboard"}`;
-  }, [redirect]);
 
   if (!loading && user) {
     return <Navigate to={redirect || "/linkedin-dashboard"} />;
@@ -34,14 +30,10 @@ function LoginPage() {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
-    setSuccess(null);
 
-    const { error: signInError } = await supabase.auth.signInWithOtp({
+    const { error: signInError } = await supabase.auth.signInWithPassword({
       email,
-      options: {
-        emailRedirectTo,
-        shouldCreateUser: false,
-      },
+      password,
     });
 
     setSubmitting(false);
@@ -51,7 +43,7 @@ function LoginPage() {
       return;
     }
 
-    setSuccess(`Magic link sent to ${email}. Open the email on this device to finish signing in.`);
+    await navigate({ to: redirect || "/linkedin-dashboard" });
   };
 
   return (
@@ -61,7 +53,7 @@ function LoginPage() {
           <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Brookelyn</div>
           <h1 className="text-2xl font-semibold tracking-tight">Sign in to your workspace</h1>
           <p className="text-sm text-muted-foreground mt-2">
-            We’ll email you a secure magic link. Use the same inbox that should have access to this app.
+            Use your workspace email and password to sign in.
           </p>
         </div>
 
@@ -81,19 +73,33 @@ function LoginPage() {
             />
           </div>
 
-          {error ? <div className="text-sm text-destructive">{error}</div> : null}
-          {success ? <div className="text-sm text-emerald-600">{success}</div> : null}
+          <div className="space-y-2">
+            <label className="text-sm font-medium" htmlFor="password">
+              Password
+            </label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </div>
 
-          <Button className="w-full" disabled={submitting || !email.trim()} type="submit">
+          {error ? <div className="text-sm text-destructive">{error}</div> : null}
+
+          <Button className="w-full" disabled={submitting || !email.trim() || !password} type="submit">
             {submitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Sending magic link…
+                Signing in…
               </>
             ) : (
               <>
-                <Mail className="mr-2 h-4 w-4" />
-                Send magic link
+                <Lock className="mr-2 h-4 w-4" />
+                Sign in
               </>
             )}
           </Button>
