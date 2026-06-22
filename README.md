@@ -41,6 +41,12 @@ Fill in at minimum:
 - `APP_URL`
 - `APP_REDIRECT_URLS`
 
+Notes:
+- Current Supabase projects typically provide `sb_publishable_*` and `sb_secret_*` keys. Those are the preferred values for this repo.
+- Legacy `NEXT_PUBLIC_SUPABASE_ANON_KEY` / JWT anon keys are not the primary contract for this codebase.
+- Keep `SUPABASE_URL` and `VITE_SUPABASE_URL` identical.
+- Keep `SUPABASE_PUBLISHABLE_KEY` and `VITE_SUPABASE_PUBLISHABLE_KEY` identical.
+
 Feature-specific extras:
 - `LOVABLE_API_KEY` — AI extraction, enrichment, outreach generation
 - `BRIGHTDATA_API_KEY` and `BRIGHTDATA_SERP_ZONE` — LinkedIn contact discovery
@@ -78,6 +84,9 @@ In Supabase Auth settings:
 - set Site URL to your deployed app origin
 - add Redirect URLs for local + deployed environments
 - ensure magic-link email auth is enabled
+
+For this repo specifically, the app origin in `APP_URL` and every value in
+`APP_REDIRECT_URLS` should be mirrored in Supabase Auth settings.
 
 Suggested local URLs:
 - http://127.0.0.1:4173
@@ -175,6 +184,18 @@ Minimum independent verification:
 8. verify signed-in user can create/read/update their own records
 9. verify second user cannot see first user’s data
 10. verify public endpoints reject missing/invalid secrets
+
+## Production env example
+
+```env
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxx
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxx
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_xxx
+APP_URL=https://your-production-domain.example
+APP_REDIRECT_URLS=https://your-production-domain.example,http://127.0.0.1:4173,http://localhost:4173
+```
 
 ## Related audit docs
 - `docs/plans/2026-06-19-brookelyn-export-gaps-and-hardening-plan.md`

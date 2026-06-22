@@ -13,19 +13,19 @@ function AuthLoadingState() {
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
-  const location = useRouterState({ select: (state) => state.location });
+  const redirect = useRouterState({
+    select: (state) => {
+      const { pathname, searchStr, hash } = state.location;
+      return `${pathname}${searchStr}${hash}`;
+    },
+  });
 
   if (loading) {
     return <AuthLoadingState />;
   }
 
   if (!user) {
-    return (
-      <Navigate
-        to="/login"
-        search={{ redirect: `${location.pathname}${location.search}${location.hash}` }}
-      />
-    );
+    return <Navigate to="/login" search={{ redirect }} />;
   }
 
   return <AppShell userEmail={user.email}>{children}</AppShell>;
