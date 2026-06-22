@@ -10,6 +10,9 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 // This repo currently uses a flattened root layout rather than src/.
 // @cloudflare/vite-plugin builds from this — wrangler.jsonc main alone is insufficient.
 export default defineConfig({
+  nitro: {
+    preset: "vercel",
+  },
   vite: {
     resolve: {
       alias: {
