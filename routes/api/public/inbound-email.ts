@@ -6,8 +6,7 @@ import { processDigestForUser } from "@/lib/ingest.functions";
 // Accepts inbound email webhooks from Postmark, SendGrid Inbound Parse,
 // Cloudflare Email Workers, Mailgun, etc. Body shape is normalized below.
 // Auth: shared secret via `x-inbound-secret` header OR `?secret=` query string.
-// Routing: prefers explicit inbound_email_routes matches by destination address.
-// Fallback: if exactly one user exists in icp_config, route there for backward compatibility.
+// Routing: requires explicit inbound_email_routes matches by destination address.
 
 const PayloadSchema = z
   .object({
@@ -66,18 +65,6 @@ async function resolveUserId(toValue: string | undefined): Promise<string | null
     }
   }
 
-  const { data: rows, error } = await supabaseAdmin
-    .from("icp_config")
-    .select("user_id")
-    .not("user_id", "is", null)
-    .limit(2);
-
-  if (error) {
-    console.error("inbound-email fallback user lookup failed", error);
-    return null;
-  }
-
-  if (rows && rows.length === 1) return rows[0].user_id as string;
   return null;
 }
 
@@ -124,7 +111,12 @@ export const Route = createFileRoute("/api/public/inbound-email")({
           return new Response("No user mapping for inbound address", { status: 404 });
         }
 
-        const from = (p.from ?? p.From ?? "").toLowerCase();
+        const rawFrom = p.from ?? p.From ?? "";
+        const from = rawFrom.toLowerCase();
+        const isGoogleAlertsForward =
+          /google alert/i.test(subject) ||
+          /googlealerts-noreply@google\.com/i.test(body) ||
+          /forwarded message/i.test(body);
 
         if (
           from.includes("forwarding-noreply@google.com") ||
@@ -134,13 +126,30 @@ export const Route = createFileRoute("/api/public/inbound-email")({
           const urlMatch = body.match(/https?:\/\/mail-settings\.google\.com\/[^\s)>"']+/i);
           await supabaseAdmin.from("gmail_forwarding_confirmations").insert({
             user_id: userId,
-            from_address: p.from ?? p.From ?? null,
+            from_address: rawFrom || null,
             subject,
             code: codeMatch?.[1] ?? null,
             verify_url: urlMatch?.[0] ?? null,
             raw_body: body.slice(0, 4000),
           });
           return Response.json({ ok: true, gmail_confirmation: true, code: codeMatch?.[1] ?? null });
+        }
+
+        if (isGoogleAlertsForward) {
+          const trimmedBody = body.slice(0, 8000);
+          const trimmedCombined = `Subject: ${subject}\n\n${trimmedBody}`.trim();
+          try {
+            const stats = await processDigestForUser(userId, trimmedCombined);
+            return Response.json({ ok: true, source: "google_alert_forward", ...stats });
+          } catch (err) {
+            console.error("inbound-email google alert processing failed", {
+              error: err,
+              subject,
+              from: rawFrom,
+              bodyPreview: trimmedBody.slice(0, 1000),
+            });
+            return new Response("Processing failed", { status: 500 });
+          }
         }
 
         if (from.includes("linkedin.com")) {
