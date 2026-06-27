@@ -6,7 +6,7 @@
 
 **Architecture:** Treat Lovable as a temporary prototype host and the exported repo as the canonical product artifact. Build toward a standalone deployment where the repo fully describes runtime requirements, database schema, auth wiring, scheduled/public endpoints, and privileged integrations. Prefer explicit bootstrap docs and repo-managed policy/schema state over hidden cloud-side configuration.
 
-**Tech Stack:** TanStack Start, Vite, Supabase Auth/Postgres/RLS, server functions, Bright Data, Firecrawl, Lovable AI gateway.
+**Tech Stack:** TanStack Start, Vite, Supabase Auth/Postgres/RLS, server functions, Bright Data, Firecrawl, Anthropic API.
 
 ---
 
@@ -41,7 +41,7 @@ A fully independent Brookelyn deployment must satisfy all of these:
 4. User data persists in that Supabase project, not in Lovable-only state.
 5. Scheduled/public integrations remain functional with explicit secrets.
 6. Authorization does not rely on demo IDs or hidden singleton records.
-7. If Lovable AI gateway remains in use, it is treated as an external dependency, not a hidden platform feature.
+7. If Anthropic remains in use, it is treated as an external dependency, not a hidden platform feature.
 
 ---
 
@@ -67,7 +67,7 @@ Required envs observed in code:
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `LOVABLE_API_KEY`
+- `ANTHROPIC_API_KEY`
 - `BRIGHTDATA_API_KEY`
 - `BRIGHTDATA_SERP_ZONE`
 - `FIRECRAWL_API_KEY`
@@ -152,11 +152,11 @@ Implication:
 Independent persistence is not just DB survival. Some durable workflows also depend on:
 - Bright Data for contact enrichment
 - Firecrawl for scraping/import enrichment
-- Lovable AI gateway for classification, lead extraction, scoring, and outreach generation
+- Anthropic API for classification, lead extraction, scoring, and outreach generation
 
 Implication:
-- the app can be independent of Lovable Cloud while still depending on Lovable AI as an external API
-- if you want total Lovable independence, AI calls must be swapped to a provider you own directly
+- the app can be independent of Lovable Cloud while still depending on Anthropic as an external API
+- the Lovable gateway dependency is already removed; Anthropic is now the owned-provider path
 
 ---
 
@@ -174,7 +174,7 @@ Implication:
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `LOVABLE_API_KEY`
+- `ANTHROPIC_API_KEY`
 - `BRIGHTDATA_API_KEY`
 - `BRIGHTDATA_SERP_ZONE`
 - `FIRECRAWL_API_KEY`
@@ -368,11 +368,11 @@ Implication:
 
 ## Phase 5: Decide how independent you want AI/vendor persistence dependencies to be
 
-### Option A: Independent of Lovable Cloud, but keep Lovable AI API
+### Option A: Independent of Lovable Cloud, using Anthropic API
 This is the fastest route.
 
 Still depends on:
-- `LOVABLE_API_KEY`
+- `ANTHROPIC_API_KEY`
 
 But persistence is independent because:
 - DB/auth live in your own Supabase
@@ -380,7 +380,7 @@ But persistence is independent because:
 - only AI inference remains external
 
 ### Option B: Fully Lovable-free stack
-This requires replacing all `LOVABLE_API_KEY` flows.
+This app is already off the hosted builder AI gateway; the remaining step is just operating under your own Anthropic account.
 
 **Files to audit/replace:**
 - `routes/api/public/hooks/run-daily-search.ts`
@@ -390,8 +390,8 @@ This requires replacing all `LOVABLE_API_KEY` flows.
 - `lib/outreach.functions.ts`
 
 **Required change:**
-- swap Lovable gateway calls for direct provider calls you control
-- update env contract accordingly
+- maintain the direct Anthropic integration or swap again later if you want another owned provider
+- keep the env contract aligned with the active provider
 
 ---
 
@@ -457,7 +457,7 @@ Brookelyn is “independently persistent” once all are true:
 9. harden public routes
 10. inventory/repair RLS + migration completeness
 11. fresh Supabase bootstrap verification
-12. decide whether to keep or replace Lovable AI API
+12. decide whether to keep Anthropic as the long-term provider or swap again later
 
 ---
 

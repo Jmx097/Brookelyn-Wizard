@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { ANTHROPIC_MODELS, callAnthropicTool } from "@/lib/anthropic";
 
 type ExtractedLead = {
   company_name: string;
@@ -21,37 +22,10 @@ type ExtractedLead = {
 };
 
 async function callAI(systemPrompt: string, userPrompt: string, schema: object, fnName: string, useGrounding = false) {
-  const apiKey = process.env.LOVABLE_API_KEY;
-  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
-
-  const body: Record<string, unknown> = {
-    model: useGrounding ? "google/gemini-2.5-pro" : "google/gemini-2.5-flash",
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    tools: [
-      {
-        type: "function",
-        function: { name: fnName, description: "Return structured leads", parameters: schema },
-      },
-    ],
-    tool_choice: { type: "function", function: { name: fnName } },
-  };
-
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+  return callAnthropicTool(systemPrompt, userPrompt, schema as Record<string, unknown>, fnName, {
+    model: useGrounding ? ANTHROPIC_MODELS.complex : ANTHROPIC_MODELS.cheap,
+    toolDescription: "Return structured leads",
   });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`AI gateway ${res.status}: ${t.slice(0, 300)}`);
-  }
-  const json = await res.json();
-  const args = json?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-  if (!args) throw new Error("No tool call returned");
-  return JSON.parse(args);
 }
 
 const LEAD_SCHEMA = {

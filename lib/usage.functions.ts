@@ -7,10 +7,10 @@ const COST = {
   brightdataPerQuery: 0.0015,
   // We fire ~6 role queries per enrichment
   queriesPerEnrichment: 6,
-  // Lovable AI Gateway (Gemini 2.5 Pro avg per lead scored end-to-end)
-  aiPerLeadScored: 0.012,
+  // Anthropic API (Haiku-first with Sonnet for heavier reasoning)
+  aiPerLeadScored: 0.004,
   // AI cost per outreach draft generated
-  aiPerOutreachDraft: 0.004,
+  aiPerOutreachDraft: 0.0015,
   // Firecrawl per article ingestion (rough)
   firecrawlPerArticle: 0.002,
 };
@@ -106,7 +106,7 @@ export const getUsageStats = createServerFn({ method: "GET" })
       totals: {
         last30: totalLast30,
         projected: totalProjected,
-        fixedMonthly: 20, // Lovable plan baseline reminder
+        fixedMonthly: 0, // No fixed Anthropic subscription assumed
       },
       assumptions: COST,
     };
@@ -123,7 +123,7 @@ export const getUsageStats = createServerFn({ method: "GET" })
           aiOutreachLast30: 0, aiOutreachProjected: 0,
           firecrawlLast30: 0, firecrawlProjected: 0,
         },
-        totals: { last30: 0, projected: 0, fixedMonthly: 20 },
+        totals: { last30: 0, projected: 0, fixedMonthly: 0 },
         assumptions: COST,
         error: err instanceof Error ? err.message : "Failed to load usage stats",
       };

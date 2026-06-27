@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { ANTHROPIC_MODELS, callAnthropicTool } from "@/lib/anthropic";
 
 const InputSchema = z.object({
   leadId: z.string().uuid().optional().nullable(),
@@ -87,9 +88,6 @@ export const generateOutreach = createServerFn({ method: "POST" })
   .handler(async ({ data, context }): Promise<OutreachMessages> => {
     await assertOwnedLead(context.userId, data.leadId);
 
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
-
     const voice =
       data.voice ||
       "Warm, concise, consultative. Reference the trigger event and how GoGlobal helps with international hiring/expansion via EOR.";
@@ -122,56 +120,31 @@ Out-of-HQ hiring countries: ${data.outOfHqCountries.join(", ") || "none"}
 Contact: ${data.contactName}
 Role: ${data.contactRole}`;
 
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          { role: "system", content: sys },
-          { role: "user", content: user },
-        ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "emit_outreach",
-              description: "Return the structured outreach package",
-              parameters: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  problemStatements: {
-                    type: "array",
-                    items: { type: "string" },
-                    minItems: 2,
-                    maxItems: 3,
-                  },
-                  emailSubject: { type: "string" },
-                  emailBody: { type: "string" },
-                  linkedinMessage: { type: "string" },
-                },
-                required: ["problemStatements", "emailSubject", "emailBody", "linkedinMessage"],
-              },
-            },
+    const parsed = await callAnthropicTool<OutreachMessages>(
+      sys,
+      user,
+      {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          problemStatements: {
+            type: "array",
+            items: { type: "string" },
+            minItems: 2,
+            maxItems: 3,
           },
-        ],
-        tool_choice: { type: "function", function: { name: "emit_outreach" } },
-      }),
-    });
-
-    if (!res.ok) {
-      const t = await res.text();
-      throw new Error(`AI gateway error ${res.status}: ${t.slice(0, 200)}`);
-    }
-    const json = await res.json();
-    const call = json?.choices?.[0]?.message?.tool_calls?.[0];
-    const args = call?.function?.arguments;
-    if (!args) throw new Error("No tool call returned");
-    const parsed = JSON.parse(args) as OutreachMessages;
+          emailSubject: { type: "string" },
+          emailBody: { type: "string" },
+          linkedinMessage: { type: "string" },
+        },
+        required: ["problemStatements", "emailSubject", "emailBody", "linkedinMessage"],
+      },
+      "emit_outreach",
+      {
+        model: ANTHROPIC_MODELS.cheap,
+        toolDescription: "Return the structured outreach package",
+      },
+    );
     const stripBangs = (s: string) =>
       s.replace(/!+/g, ".").replace(/\.{2,}/g, ".").replace(/\s+\./g, ".").trim();
     return { ...parsed, linkedinMessage: stripBangs(parsed.linkedinMessage) };

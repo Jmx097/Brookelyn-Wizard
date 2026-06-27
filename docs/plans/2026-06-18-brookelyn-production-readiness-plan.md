@@ -6,7 +6,7 @@
 
 **Architecture:** Convert the current demo/singleton Lovable-style app into a real single-tenant or tenant-scoped production deployment with authenticated frontend access, server-enforced authorization, locked-down Supabase RLS, environment-driven configuration, and explicit operational workflows for Google Alerts ingestion, Bright Data enrichment, stale-data cleanup, and custom-domain deployment. Preserve the existing TanStack Start + Supabase + Cloudflare/Lovable stack, but remove demo shortcuts and make every external integration observable and configurable.
 
-**Tech Stack:** TypeScript, React 19, TanStack Start, TanStack Router, React Query, Supabase, Cloudflare/Wrangler, Firecrawl, Bright Data, Lovable AI gateway, Zod.
+**Tech Stack:** TypeScript, React 19, TanStack Start, TanStack Router, React Query, Supabase, Cloudflare/Wrangler, Firecrawl, Bright Data, Anthropic API, Zod.
 
 ---
 
@@ -73,7 +73,7 @@ Document at minimum:
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
-- `LOVABLE_API_KEY`
+- `ANTHROPIC_API_KEY`
 - `FIRECRAWL_API_KEY`
 - `BRIGHTDATA_API_KEY`
 - `BRIGHTDATA_SERP_ZONE`

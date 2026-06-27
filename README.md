@@ -48,7 +48,9 @@ Notes:
 - Keep `SUPABASE_PUBLISHABLE_KEY` and `VITE_SUPABASE_PUBLISHABLE_KEY` identical.
 
 Feature-specific extras:
-- `LOVABLE_API_KEY` — AI extraction, enrichment, outreach generation
+- `ANTHROPIC_API_KEY` — AI extraction, enrichment, outreach generation
+- `ANTHROPIC_MODEL_CHEAP` — optional low-cost/default model override (defaults to `claude-3-5-haiku-latest`)
+- `ANTHROPIC_MODEL_COMPLEX` — optional heavier-reasoning model override (defaults to `claude-3-7-sonnet-latest`)
 - `BRIGHTDATA_API_KEY` and `BRIGHTDATA_SERP_ZONE` — LinkedIn contact discovery
 - `FIRECRAWL_API_KEY` — scrape/import enrichment
 - `INBOUND_EMAIL_SECRET` — protect `/api/public/inbound-email`
@@ -128,10 +130,10 @@ Protection:
 Purpose:
 - scheduled search ingestion / enrichment
 
-Status:
-- should be treated as a privileged webhook endpoint
-- independent deployment should require a shared secret such as `RUN_DAILY_SEARCH_SECRET`
-- current code still needs this secret check implemented before the endpoint is safe to expose
+Protection:
+- treated as a privileged webhook endpoint
+- requires a shared secret via header `x-run-daily-search-secret`, `x-webhook-secret`, `Authorization: Bearer <secret>`, or `?secret=` query param
+- set `RUN_DAILY_SEARCH_SECRET`
 
 ## Integration dependencies
 
@@ -141,17 +143,13 @@ Status:
 ### Required for current enrichment features
 - Bright Data
 - Firecrawl (optional for some flows, but required for best import/scrape behavior)
-- Lovable AI gateway
+- Anthropic API
 
 ### Important distinction
-This repo can be independent of **Lovable Cloud** while still depending on **Lovable AI API**.
+This repo can be independent of **Lovable Cloud** while still depending on **Anthropic API**.
 
 If you want a fully Lovable-free stack, the following files need provider replacement work:
-- `lib/ingest.functions.ts`
-- `lib/lead-enrich.functions.ts`
-- `lib/outreach.functions.ts`
-- `lib/import-companies.server.ts`
-- `routes/api/public/hooks/run-daily-search.ts`
+- none of the current AI call sites — they now use Anthropic directly
 
 ## Known hardening work still in progress
 

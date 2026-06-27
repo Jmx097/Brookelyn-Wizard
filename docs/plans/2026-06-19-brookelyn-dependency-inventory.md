@@ -36,7 +36,7 @@ Status:
 
 ## AI / enrichment dependencies
 
-### Lovable AI gateway
+### Anthropic API
 Role:
 - lead extraction from digests/search
 - outreach generation
@@ -50,7 +50,7 @@ Files observed:
 - `routes/api/public/hooks/run-daily-search.ts`
 
 Env:
-- `LOVABLE_API_KEY`
+- `ANTHROPIC_API_KEY`
 
 Status:
 - replaceable dependency
@@ -58,8 +58,8 @@ Status:
 - not required for basic persistence/auth alone
 
 Notes:
-- keeping this means independent of Lovable Cloud, but not fully Lovable-free
-- replacing this is the path to total vendor independence from Lovable
+- keeping this means independent of Lovable Cloud while using your own provider account
+- the Lovable-hosted AI gateway has already been removed from active app code
 
 ### Bright Data
 Role:
@@ -152,12 +152,12 @@ Status:
 - repo-managed schema/RLS state
 
 ### Needed for current feature completeness
-- Lovable AI gateway
+- Anthropic API
 - Bright Data
 - optionally Firecrawl
 
 ### Not required if goal is only to be independent of Lovable Cloud
 - Lovable Cloud hosting/runtime
 
-### Still required if goal is fully Lovable-free
-- replace `LOVABLE_API_KEY` call sites with direct provider integrations you control
+### Fully Lovable-free status
+- completed for AI: active app code now calls Anthropic directly instead of the Lovable gateway

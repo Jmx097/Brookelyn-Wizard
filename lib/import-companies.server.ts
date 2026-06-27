@@ -1,15 +1,12 @@
 import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { EnrichSchema } from "./import-companies.schema";
-
-const SINGLETON_ID = "00000000-0000-0000-0000-000000000001";
+import { ANTHROPIC_MODELS, callAnthropicTool } from "@/lib/anthropic";
 
 // ---------- ICP helpers ----------
 async function getIcpText(userId: string): Promise<string> {
   const { data } = await supabaseAdmin.from("icp_config").select("*").eq("user_id", userId).maybeSingle();
-  const c =
-    data ??
-    (await supabaseAdmin.from("icp_config").select("*").eq("id", SINGLETON_ID).maybeSingle()).data;
+  const c = data;
   if (!c) return "GoGlobal ICP: companies signaling international expansion.";
   return `GoGlobal ICP:
 - Industries: ${(c.industries as string[])?.join(", ") || "any"}
@@ -59,26 +56,9 @@ async function firecrawlSearch(query: string, limit = 6): Promise<SearchResult[]
 
 // ---------- AI scoring ----------
 async function callAI<T>(systemPrompt: string, userPrompt: string, schema: object, fnName: string): Promise<T> {
-  const apiKey = process.env.LOVABLE_API_KEY;
-  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      tools: [{ type: "function", function: { name: fnName, parameters: schema } }],
-      tool_choice: { type: "function", function: { name: fnName } },
-    }),
+  return callAnthropicTool<T>(systemPrompt, userPrompt, schema as Record<string, unknown>, fnName, {
+    model: ANTHROPIC_MODELS.cheap,
   });
-  if (!res.ok) throw new Error(`AI ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const json = await res.json();
-  const args = json?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-  if (!args) throw new Error("No tool call returned");
-  return JSON.parse(args) as T;
 }
 
 const SCORE_SCHEMA = {

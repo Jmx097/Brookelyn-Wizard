@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { discoverContactsForCompany } from "@/lib/contacts.server";
+import { ANTHROPIC_MODELS, callAnthropicTool } from "@/lib/anthropic";
 
 type ExtractedLead = {
   company_name: string;
@@ -52,26 +53,10 @@ const LEAD_SCHEMA = {
 };
 
 async function callAI(systemPrompt: string, userPrompt: string) {
-  const apiKey = process.env.LOVABLE_API_KEY;
-  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "google/gemini-2.5-pro",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      tools: [{ type: "function", function: { name: "emit_leads", parameters: LEAD_SCHEMA } }],
-      tool_choice: { type: "function", function: { name: "emit_leads" } },
-    }),
+  return callAnthropicTool<{ leads: ExtractedLead[] }>(systemPrompt, userPrompt, LEAD_SCHEMA, "emit_leads", {
+    model: ANTHROPIC_MODELS.complex,
+    toolDescription: "Return structured leads",
   });
-  if (!res.ok) throw new Error(`AI ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  const json = await res.json();
-  const args = json?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-  if (!args) return { leads: [] as ExtractedLead[] };
-  return JSON.parse(args) as { leads: ExtractedLead[] };
 }
 
 function formatIcp(c: Record<string, unknown> | null): string {

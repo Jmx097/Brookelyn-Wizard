@@ -61,7 +61,7 @@ function UsagePage() {
             <Stat
               label="All-in monthly"
               value={fmtUSD(data.totals.projected + data.totals.fixedMonthly)}
-              hint={`Includes ~${fmtUSD(data.totals.fixedMonthly)} Lovable plan`}
+              hint={data.totals.fixedMonthly > 0 ? `Includes ~${fmtUSD(data.totals.fixedMonthly)} Anthropic baseline` : "No fixed platform fee assumed"}
             />
           </div>
 
@@ -127,7 +127,7 @@ function UsagePage() {
                 manageLabel="Adjust auto-enrich threshold"
               />
               <CostCard
-                label="Lovable AI — lead scoring & enrichment"
+                label="Anthropic — lead scoring & enrichment"
                 last={data.costs.aiScoringLast30}
                 projected={data.costs.aiScoringProjected}
                 totalProjected={data.totals.projected}
@@ -137,7 +137,7 @@ function UsagePage() {
                 manageLabel="Tune ICP & search queries"
               />
               <CostCard
-                label="Lovable AI — outreach drafts"
+                label="Anthropic — outreach drafts"
                 last={data.costs.aiOutreachLast30}
                 projected={data.costs.aiOutreachProjected}
                 totalProjected={data.totals.projected}
@@ -163,7 +163,7 @@ function UsagePage() {
             <p className="font-medium text-foreground mb-1">Notes</p>
             <ul className="list-disc pl-4 space-y-0.5">
               <li>Bright Data is billed only for queries that actually run. We fire ~6 role-specific SERP queries per lead enriched (CEO, CFO, CHRO, COO, International, Talent).</li>
-              <li>Lovable AI costs are estimates — actual gateway charges depend on which model you use (Gemini 2.5 Pro vs Flash) and prompt size. See real numbers in Workspace → Usage.</li>
+              <li>Anthropic costs are estimates — actual charges depend on whether a workflow stays on Haiku or needs Sonnet, plus prompt size. See real numbers in Workspace → Usage.</li>
               <li>Lower the auto-enrich threshold to catch more leads automatically; raise it to cut Bright Data spend.</li>
             </ul>
           </section>
