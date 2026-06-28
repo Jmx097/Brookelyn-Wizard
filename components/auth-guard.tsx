@@ -6,9 +6,17 @@ import { useAuth } from "@/hooks/use-auth";
 function AuthLoadingState() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="text-sm text-muted-foreground">Checking your session…</div>
+      <div className="text-sm text-muted-foreground">
+        Checking your session…
+      </div>
     </div>
   );
+}
+
+function normalizeRedirect(target: string) {
+  if (!target || target === "/") return "/linkedin-dashboard";
+  if (target.startsWith("/login")) return "/linkedin-dashboard";
+  return target;
 }
 
 export function AuthGuard({ children }: { children: ReactNode }) {
@@ -16,7 +24,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   const redirect = useRouterState({
     select: (state) => {
       const { pathname, searchStr, hash } = state.location;
-      return `${pathname}${searchStr}${hash}`;
+      return normalizeRedirect(`${pathname}${searchStr}${hash}`);
     },
   });
 
@@ -25,7 +33,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
   }
 
   if (!user) {
-    return <Navigate to="/login" search={{ redirect }} />;
+    return <Navigate to="/login" search={{ redirect }} replace />;
   }
 
   return <AppShell userEmail={user.email}>{children}</AppShell>;

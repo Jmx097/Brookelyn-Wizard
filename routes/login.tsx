@@ -1,6 +1,6 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
-import { Loader2, Lock, Mail } from "lucide-react";
+import { Loader2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,17 +13,24 @@ export const Route = createFileRoute("/login")({
   component: LoginPage,
 });
 
+function normalizeRedirect(target?: string) {
+  if (!target || target === "/") return "/linkedin-dashboard";
+  if (target.startsWith("/login")) return "/linkedin-dashboard";
+  return target;
+}
+
 function LoginPage() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
   const { redirect } = Route.useSearch();
+  const safeRedirect = useMemo(() => normalizeRedirect(redirect), [redirect]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!loading && user) {
-    return <Navigate to={redirect || "/linkedin-dashboard"} />;
+    return <Navigate to={safeRedirect} replace />;
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -43,16 +50,20 @@ function LoginPage() {
       return;
     }
 
-    await navigate({ to: redirect || "/linkedin-dashboard" });
+    await navigate({ to: safeRedirect, replace: true });
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md rounded-xl border bg-card p-8 shadow-sm">
         <div className="mb-6">
-          <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Brookelyn</div>
-          <h1 className="text-2xl font-semibold tracking-tight">Sign in to your workspace</h1>
-          <p className="text-sm text-muted-foreground mt-2">
+          <div className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">
+            Brookelyn
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Sign in to your workspace
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             Use your workspace email and password to sign in.
           </p>
         </div>
@@ -88,9 +99,15 @@ function LoginPage() {
             />
           </div>
 
-          {error ? <div className="text-sm text-destructive">{error}</div> : null}
+          {error ? (
+            <div className="text-sm text-destructive">{error}</div>
+          ) : null}
 
-          <Button className="w-full" disabled={submitting || !email.trim() || !password} type="submit">
+          <Button
+            className="w-full"
+            disabled={submitting || !email.trim() || !password}
+            type="submit"
+          >
             {submitting ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

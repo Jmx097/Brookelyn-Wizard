@@ -45,7 +45,12 @@ const LEAD_SCHEMA = {
           source_url: { type: "string" },
           source_title: { type: "string" },
         },
-        required: ["company_name", "trigger_summary", "fit_score", "fit_reasoning"],
+        required: [
+          "company_name",
+          "trigger_summary",
+          "fit_score",
+          "fit_reasoning",
+        ],
       },
     },
   },
@@ -53,10 +58,16 @@ const LEAD_SCHEMA = {
 };
 
 async function callAI(systemPrompt: string, userPrompt: string) {
-  return callAnthropicTool<{ leads: ExtractedLead[] }>(systemPrompt, userPrompt, LEAD_SCHEMA, "emit_leads", {
-    model: ANTHROPIC_MODELS.complex,
-    toolDescription: "Return structured leads",
-  });
+  return callAnthropicTool<{ leads: ExtractedLead[] }>(
+    systemPrompt,
+    userPrompt,
+    LEAD_SCHEMA,
+    "emit_leads",
+    {
+      model: ANTHROPIC_MODELS.complex,
+      toolDescription: "Return structured leads",
+    },
+  );
 }
 
 function formatIcp(c: Record<string, unknown> | null): string {
@@ -70,7 +81,11 @@ function formatIcp(c: Record<string, unknown> | null): string {
 - Scoring guidance: ${c.scoring_prompt || ""}`;
 }
 
-async function persistLeads(userId: string, leads: ExtractedLead[], autoEnrichMin: number) {
+async function persistLeads(
+  userId: string,
+  leads: ExtractedLead[],
+  autoEnrichMin: number,
+) {
   let created = 0;
   for (const l of leads) {
     if (!l.company_name || l.fit_score == null) continue;
@@ -160,7 +175,10 @@ async function persistLeads(userId: string, leads: ExtractedLead[], autoEnrichMi
           .eq("id", leadId)
           .eq("user_id", userId);
       } catch (e) {
-        console.error(`Auto-enrich failed for ${l.company_name}:`, (e as Error).message);
+        console.error(
+          `Auto-enrich failed for ${l.company_name}:`,
+          (e as Error).message,
+        );
       }
     }
   }
@@ -168,7 +186,9 @@ async function persistLeads(userId: string, leads: ExtractedLead[], autoEnrichMi
 }
 
 function authorizeScheduler(request: Request) {
-  const expected = process.env.RUN_DAILY_SEARCH_SECRET;
+  const expected =
+    import.meta.env.RUN_DAILY_SEARCH_SECRET ||
+    process.env.RUN_DAILY_SEARCH_SECRET;
   if (!expected) {
     return new Response("Server not configured", { status: 500 });
   }
@@ -218,7 +238,8 @@ export const Route = createFileRoute("/api/public/hooks/run-daily-search")({
             .maybeSingle();
           const icpText = formatIcp(icp ?? null);
           const autoEnrichMin =
-            (icp as { auto_enrich_contacts_min_score?: number } | null)?.auto_enrich_contacts_min_score ?? 0;
+            (icp as { auto_enrich_contacts_min_score?: number } | null)
+              ?.auto_enrich_contacts_min_score ?? 0;
           for (const q of userQueries ?? []) {
             try {
               const sys = `You are a B2B prospect researcher for GoGlobal (Employer of Record / global expansion).
@@ -227,7 +248,11 @@ ${icpText}
 
 Use your knowledge of recent (last 30 days) news to find companies matching this query. Return up to 8 high-quality matches with company info, trigger event, source URL if known, expansion signals, and 0-100 fit score with reasoning. Skip generic results.`;
               const result = await callAI(sys, `Search query: ${q.query}`);
-              totalCreated += await persistLeads(userId, result.leads ?? [], autoEnrichMin);
+              totalCreated += await persistLeads(
+                userId,
+                result.leads ?? [],
+                autoEnrichMin,
+              );
 
               totalQueries++;
               await supabaseAdmin
@@ -241,7 +266,11 @@ Use your knowledge of recent (last 30 days) news to find companies matching this
           }
         }
 
-        return Response.json({ ok: true, queries: totalQueries, created: totalCreated });
+        return Response.json({
+          ok: true,
+          queries: totalQueries,
+          created: totalCreated,
+        });
       },
     },
   },

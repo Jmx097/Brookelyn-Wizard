@@ -39,13 +39,17 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-function normalizeEmailAddress(value: string | null | undefined): string | null {
+function normalizeEmailAddress(
+  value: string | null | undefined,
+): string | null {
   if (!value) return null;
   const match = value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
   return match?.[0]?.trim().toLowerCase() ?? null;
 }
 
-async function resolveUserId(toValue: string | undefined): Promise<string | null> {
+async function resolveUserId(
+  toValue: string | undefined,
+): Promise<string | null> {
   const normalizedTo = normalizeEmailAddress(toValue);
 
   if (normalizedTo) {
@@ -72,13 +76,17 @@ export const Route = createFileRoute("/api/public/inbound-email")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const expected = process.env.INBOUND_EMAIL_SECRET;
+        const expected =
+          import.meta.env.INBOUND_EMAIL_SECRET ||
+          process.env.INBOUND_EMAIL_SECRET;
         if (!expected) {
           return new Response("Server not configured", { status: 500 });
         }
         const url = new URL(request.url);
         const provided =
-          request.headers.get("x-inbound-secret") ?? url.searchParams.get("secret") ?? "";
+          request.headers.get("x-inbound-secret") ??
+          url.searchParams.get("secret") ??
+          "";
         if (provided !== expected) {
           return new Response("Unauthorized", { status: 401 });
         }
@@ -108,7 +116,9 @@ export const Route = createFileRoute("/api/public/inbound-email")({
         const toValue = p.to ?? p.To;
         const userId = await resolveUserId(toValue);
         if (!userId) {
-          return new Response("No user mapping for inbound address", { status: 404 });
+          return new Response("No user mapping for inbound address", {
+            status: 404,
+          });
         }
 
         const rawFrom = p.from ?? p.From ?? "";
@@ -123,7 +133,9 @@ export const Route = createFileRoute("/api/public/inbound-email")({
           /gmail forwarding confirmation/i.test(subject)
         ) {
           const codeMatch = body.match(/\b(\d{9})\b/);
-          const urlMatch = body.match(/https?:\/\/mail-settings\.google\.com\/[^\s)>"']+/i);
+          const urlMatch = body.match(
+            /https?:\/\/mail-settings\.google\.com\/[^\s)>"']+/i,
+          );
           await supabaseAdmin.from("gmail_forwarding_confirmations").insert({
             user_id: userId,
             from_address: rawFrom || null,
@@ -132,15 +144,24 @@ export const Route = createFileRoute("/api/public/inbound-email")({
             verify_url: urlMatch?.[0] ?? null,
             raw_body: body.slice(0, 4000),
           });
-          return Response.json({ ok: true, gmail_confirmation: true, code: codeMatch?.[1] ?? null });
+          return Response.json({
+            ok: true,
+            gmail_confirmation: true,
+            code: codeMatch?.[1] ?? null,
+          });
         }
 
         if (isGoogleAlertsForward) {
           const trimmedBody = body.slice(0, 8000);
-          const trimmedCombined = `Subject: ${subject}\n\n${trimmedBody}`.trim();
+          const trimmedCombined =
+            `Subject: ${subject}\n\n${trimmedBody}`.trim();
           try {
             const stats = await processDigestForUser(userId, trimmedCombined);
-            return Response.json({ ok: true, source: "google_alert_forward", ...stats });
+            return Response.json({
+              ok: true,
+              source: "google_alert_forward",
+              ...stats,
+            });
           } catch (err) {
             console.error("inbound-email google alert processing failed", {
               error: err,
