@@ -105,8 +105,8 @@ function Purpose() {
                 },
                 {
                   icon: Target,
-                  title: "Automated reading & scoring",
-                  desc: "Surfaces the hottest companies matched to your ICP.",
+                  title: "Google Alerts flow into scoring",
+                  desc: "New articles move through the app on a regular schedule and surface the hottest companies matched to your ICP.",
                 },
                 {
                   icon: Users,

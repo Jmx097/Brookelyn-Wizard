@@ -3,6 +3,11 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { ANTHROPIC_MODELS, callAnthropicTool } from "@/lib/anthropic";
+import {
+  buildGoogleAlertScoringSystemPrompt,
+  buildGoogleAlertUserPrompt,
+  extractArticleUrlsFromDigest,
+} from "@/lib/google-alerts";
 
 type ExtractedLead = {
   company_name: string;
@@ -247,18 +252,6 @@ async function persistLeads(
   return { created, updated };
 }
 
-function extractUrls(text: string): string[] {
-  const re = /https?:\/\/[^\s)<>"']+/g;
-  const raw = text.match(re) ?? [];
-  const cleaned = raw
-    .map((u) => u.replace(/[.,;:)\]]+$/, ""))
-    .filter(
-      (u) =>
-        !/google\.com\/(alerts|url\?)|googleadservices|unsubscribe/i.test(u),
-    );
-  return Array.from(new Set(cleaned)).slice(0, 20);
-}
-
 async function scrapeWithFirecrawl(
   url: string,
 ): Promise<{ url: string; title?: string; markdown?: string } | null> {
@@ -299,7 +292,7 @@ export async function processDigestForUser(userId: string, text: string) {
     getIcpContext(userId),
   );
 
-  const urls = extractUrls(text);
+  const urls = extractArticleUrlsFromDigest(text);
   console.info("[digest] extracted urls", {
     userId,
     urlCount: urls.length,
@@ -319,29 +312,9 @@ export async function processDigestForUser(userId: string, text: string) {
     },
   );
 
-  const articleBlock = scraped
-    .map(
-      (s, i) =>
-        `--- ARTICLE ${i + 1} ---\nURL: ${s.url}\nTITLE: ${s.title ?? ""}\n\n${s.markdown}`,
-    )
-    .join("\n\n");
+  const sys = buildGoogleAlertScoringSystemPrompt(icp);
 
-  const sys = `You are a B2B prospect-research analyst for GoGlobal (an Employer of Record / global expansion company).
-
-${icp}
-
-You will be given (a) the raw text of a Google Alerts digest email and (b) the full body of each linked article (scraped). Prefer the full article body over the digest snippet. For each distinct article that mentions a company that could be a GoGlobal prospect:
-- Extract the company name (canonical, no suffixes like Inc/Ltd unless part of the brand)
-- Extract source url + title
-- Summarize the TRIGGER (funding / new office / international hiring / M&A / leadership hire / etc.) in 1 sentence
-- Extract concrete expansion signals as short bullet phrases
-- Estimate funding stage/amount, HQ, industry, company size if mentioned
-- Score 0-100 fit against the ICP above. Reward fresh international-expansion signals.
-- Write 1-2 sentences of fit reasoning
-
-Skip pure consumer news, mega-cap-only M&A, or generic market commentary. Return up to 25 leads.`;
-
-  const userPrompt = `DIGEST EMAIL:\n${text}\n\nFULL ARTICLE BODIES:\n${articleBlock || "(none scraped)"}`;
+  const userPrompt = buildGoogleAlertUserPrompt(text, scraped);
 
   const result = await runDigestStep<{ leads?: ExtractedLead[] }>(
     "anthropic_extract_leads",

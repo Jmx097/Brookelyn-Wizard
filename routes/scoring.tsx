@@ -31,9 +31,8 @@ function ScoringMethodology() {
         </div>
         <h1 className="text-3xl font-semibold tracking-tight">Scoring Methodology</h1>
         <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
-          Every article that lands in your inbox runs through the same four-step pipeline —
-          Extract → Enrich → Score → Draft — to produce a single 0–100 fit score. Two
-          separate rubrics drive that score depending on the play: <strong>Expansion</strong>{" "}
+          Every Google Alert article that lands in the app gets pulled into the same four-step pipeline —
+          Extract → Enrich → Score → Draft — whether it arrived from forwarding or the regular scheduled sourcing run. That produces a single 0–100 fit score using one of two rubrics: <strong>Expansion</strong>{" "}
           for companies just going international, and <strong>Consolidation</strong> for
           multi-country companies ready to unify vendors.
         </p>
@@ -50,7 +49,7 @@ function ScoringMethodology() {
               step: "01",
               title: "Extract",
               body:
-                "Parse the article for company, HQ, industry, headcount, funding, and explicit expansion language.",
+                "Pull the article into the app, parse company, HQ, industry, headcount, funding, and explicit expansion language.",
             },
             {
               step: "02",
@@ -62,7 +61,7 @@ function ScoringMethodology() {
               step: "03",
               title: "Score",
               body:
-                "Compare the enriched profile against the active rubric (Expansion or Consolidation) and your ICP Profile.",
+                "Compare the enriched profile against the active rubric (Expansion or Consolidation) and your ICP Profile, just like the scheduled sourcing runs do.",
             },
             {
               step: "04",

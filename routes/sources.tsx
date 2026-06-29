@@ -141,7 +141,7 @@ function Sources() {
         <div className="text-xs uppercase tracking-wider text-muted-foreground mb-1">Sources</div>
         <h2 className="text-2xl font-semibold tracking-tight">Where your leads come from</h2>
         <p className="text-sm text-muted-foreground mt-1.5">
-          Three pipes feed your pipeline: spreadsheet uploads, forwarded Google Alert emails, and daily web searches the app runs for you.
+          Three pipes feed your pipeline: spreadsheet uploads, forwarded Google Alert emails, and scheduled daily web searches. Google Alert articles land here first, then move through the same scoring flow the app runs on its regular cadence.
         </p>
       </div>
 
@@ -170,7 +170,7 @@ function Sources() {
           <div className="flex-1">
             <h2 className="text-base font-semibold">Forward Google Alerts here</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Add one or more destination inbox addresses below. The inbound webhook now routes emails by destination address, so each active route can map cleanly to your account.
+              Add one or more destination inbox addresses below. When a Google Alert hits one of these routes, the app pulls the linked articles, runs them through your scoring methodology, and drops the results into the same pipeline as the rest of your scheduled sourcing.
             </p>
 
             <div className="mt-4 rounded-md border bg-muted/40 p-4 space-y-3">
@@ -295,7 +295,7 @@ function Sources() {
           <div className="flex-1">
             <h2 className="text-base font-semibold">Paste a Google Alert digest</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Until inbound forwarding is wired up, paste the body of a Google Alert email (or any block of headlines + links) and the AI will extract, score, and add new leads.
+              Until inbound forwarding is wired up, paste the body of a Google Alert email (or any block of headlines + links) and the app will run that batch through the same extract → enrich → score flow used in the regular schedule.
             </p>
             <Textarea
               value={digestText}
@@ -340,7 +340,7 @@ function Sources() {
           </Button>
         </div>
         <p className="text-sm text-muted-foreground mb-4">
-          The app runs these every morning at 7:00am ET and processes new results.
+          The app runs these every morning at 7:00am ET. Google Alert articles and search results both flow into the same scoring queue, so your lead list stays current without a separate review pass.
         </p>
         <div className="rounded-lg border bg-card divide-y">
           {(queries ?? []).map((q) => (

@@ -15,20 +15,34 @@ const COST = {
   firecrawlPerArticle: 0.002,
 };
 
-export const getUsageStats = createServerFn({ method: "GET" })
+export const getUsageStats = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase } = context;
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     try {
-
-    const [leadsRes, contactsRes, articlesRes, draftsRes, icpRes] = await Promise.all([
-      supabase.from("leads").select("id, fit_score, created_at, contacts_enriched_at").gte("created_at", since),
-      supabase.from("lead_contacts").select("id, lead_id, created_at").gte("created_at", since),
-      supabase.from("articles").select("id, created_at").gte("created_at", since),
-      supabase.from("outreach_drafts").select("id, created_at").gte("created_at", since),
-      supabase.from("icp_config").select("auto_enrich_contacts_min_score").maybeSingle(),
-    ]);
+      const [leadsRes, contactsRes, articlesRes, draftsRes, icpRes] = await Promise.all([
+        supabase
+          .from("leads")
+          .select("id, fit_score, created_at, contacts_enriched_at")
+          .gte("created_at", since),
+        supabase
+          .from("lead_contacts")
+          .select("id, lead_id, created_at")
+          .gte("created_at", since),
+        supabase
+          .from("articles")
+          .select("id, created_at")
+          .gte("created_at", since),
+        supabase
+          .from("outreach_drafts")
+          .select("id, created_at")
+          .gte("created_at", since),
+        supabase
+          .from("icp_config")
+          .select("auto_enrich_contacts_min_score")
+          .maybeSingle(),
+      ]);
 
     const leads = leadsRes.data ?? [];
     const contacts = contactsRes.data ?? [];
