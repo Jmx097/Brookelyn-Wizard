@@ -15,7 +15,7 @@ const COST = {
   firecrawlPerArticle: 0.002,
 };
 
-export const getUsageStats = createServerFn({ method: "GET" })
+export const getUsageStats = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { supabase } = context;

@@ -61,7 +61,7 @@ function LoginPage() {
       <section className="relative w-full max-w-md rounded-[32px] border border-white/10 bg-slate-950/78 p-6 text-center shadow-[0_40px_100px_-46px_rgba(15,23,42,1)] backdrop-blur-xl sm:p-8">
         <div className="space-y-2">
           <h1 className="text-[2.2rem] font-semibold tracking-[-0.05em] text-white sm:text-[2.35rem]">
-            Sign in
+            Prospect Compass
           </h1>
         </div>
 
