@@ -3,13 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
 import { AuthGuard } from "@/components/auth-guard";
+import { supabase } from "@/integrations/supabase/client";
 import {
-  listOutreach,
   updateOutreachStatus,
   type OutreachRow,
 } from "@/lib/linkedin-tracker.functions";
 import {
-  listContactStatuses,
   CONTACT_STATUS_LABEL,
   type ContactProgressStatus,
   type ContactStatusRow,
@@ -104,17 +103,30 @@ function daysAgo(iso: string | null): number | null {
 
 function LinkedInDashboard() {
   const [period, setPeriod] = useState<Period>("week");
-  const list = useServerFn(listOutreach);
   const updateStatus = useServerFn(updateOutreachStatus);
-  const fetchStatuses = useServerFn(listContactStatuses);
 
   const { data: rows, isLoading, refetch } = useQuery({
     queryKey: ["linkedin-outreach"],
-    queryFn: () => list(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("linkedin_outreach")
+        .select("*")
+        .order("last_status_change_at", { ascending: false })
+        .limit(1000);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
   const { data: statusRows } = useQuery({
     queryKey: ["contact-statuses"],
-    queryFn: () => fetchStatuses(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("contact_status")
+        .select("*")
+        .limit(2000);
+      if (error) throw error;
+      return (data ?? []) as ContactStatusRow[];
+    },
   });
   const statusMap = useMemo(() => {
     const m = new Map<string, ContactProgressStatus>();

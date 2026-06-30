@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { AuthGuard } from "@/components/auth-guard";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { X, Plus } from "lucide-react";
 import { toast } from "sonner";
-import { getIcpConfig, updateIcpConfig } from "@/lib/icp.functions";
+import { updateIcpConfig } from "@/lib/icp.functions";
 
 export const Route = createFileRoute("/settings")({
   component: () => (
@@ -28,11 +29,34 @@ const STAGE_SUGGESTIONS = ["Seed", "Series A", "Series B", "Series C", "Series D
 const REGION_SUGGESTIONS = ["North America", "Europe", "UK", "DACH", "Nordics", "APAC", "LATAM", "MENA", "Africa", "ANZ"];
 
 function SettingsPage() {
-  const fetchConfig = useServerFn(getIcpConfig);
   const saveConfig = useServerFn(updateIcpConfig);
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery({ queryKey: ["icp-config"], queryFn: () => fetchConfig() });
+  const { data, isLoading } = useQuery({
+    queryKey: ["icp-config"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("icp_config")
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      return (
+        data ?? {
+          industries: [],
+          funding_stages: [],
+          regions: [],
+          company_size_min: null,
+          company_size_max: null,
+          revenue_min_usd: null,
+          revenue_max_usd: null,
+          countries_min: null,
+          countries_max: null,
+          scoring_prompt: "",
+          auto_enrich_contacts_min_score: 0,
+        }
+      );
+    },
+  });
 
   const [industries, setIndustries] = useState<string[]>([]);
   const [stages, setStages] = useState<string[]>([]);

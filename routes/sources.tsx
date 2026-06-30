@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { processDigest, runDailySearchNow } from "@/lib/ingest.functions";
-import { createInboundEmailRoute, deactivateInboundEmailRoute, listInboundEmailRoutes } from "@/lib/inbound-email-routes.functions";
+import { createInboundEmailRoute, deactivateInboundEmailRoute } from "@/lib/inbound-email-routes.functions";
 import { ImportCompaniesDialog } from "@/components/import-companies-dialog";
 
 export const Route = createFileRoute("/sources")({
@@ -38,7 +38,6 @@ function Sources() {
   const [routeLabel, setRouteLabel] = useState("");
   const processFn = useServerFn(processDigest);
   const searchFn = useServerFn(runDailySearchNow);
-  const listRoutesFn = useServerFn(listInboundEmailRoutes);
   const createRouteFn = useServerFn(createInboundEmailRoute);
   const deactivateRouteFn = useServerFn(deactivateInboundEmailRoute);
 
@@ -93,7 +92,14 @@ function Sources() {
 
   const { data: routes } = useQuery({
     queryKey: ["inbound-email-routes"],
-    queryFn: async () => listRoutesFn({}),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("inbound_email_routes")
+        .select("id,user_id,route_key,destination_address,source_label,is_active,created_at,updated_at")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   const { data: queries } = useQuery({

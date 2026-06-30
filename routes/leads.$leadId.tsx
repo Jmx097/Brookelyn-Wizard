@@ -32,7 +32,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updateLeadContact } from "@/lib/leads.functions";
 import { enrichLead, rescoreLead, researchJobs } from "@/lib/lead-enrich.functions";
-import { enrichContacts, listLeadContacts, saveContactToLeadSlot } from "@/lib/contacts.functions";
+import { enrichContacts, saveContactToLeadSlot } from "@/lib/contacts.functions";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,6 @@ import { markOutreachSent } from "@/lib/linkedin-tracker.functions";
 
 import type { OutreachRow } from "@/lib/linkedin-tracker.functions";
 import {
-  listContactStatuses,
   upsertContactStatus,
   CONTACT_STATUSES,
   CONTACT_STATUS_LABEL,
@@ -120,7 +119,6 @@ function LeadDetail() {
   const researchFn = useServerFn(researchJobs);
   const enrichContactsFn = useServerFn(enrichContacts);
   const saveContactFn = useServerFn(saveContactToLeadSlot);
-  const listContactsFn = useServerFn(listLeadContacts);
 
 
   const { data: lead } = useQuery({
@@ -151,7 +149,15 @@ function LeadDetail() {
 
   const { data: discoveredContacts } = useQuery({
     queryKey: ["lead-contacts", leadId],
-    queryFn: () => listContactsFn({ data: { leadId } }),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("lead_contacts")
+        .select("*")
+        .eq("lead_id", leadId)
+        .order("relevance_score", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
 
@@ -596,11 +602,17 @@ function LinkedInContacts(props: GenProps) {
     },
   });
 
-  const fetchStatuses = useServerFn(listContactStatuses);
   const upsertStatus = useServerFn(upsertContactStatus);
   const { data: statusRows } = useQuery({
     queryKey: ["contact-statuses"],
-    queryFn: () => fetchStatuses(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("contact_status")
+        .select("*")
+        .limit(2000);
+      if (error) throw error;
+      return (data ?? []) as ContactStatusRow[];
+    },
   });
   const statusFor = (name: string): ContactProgressStatus => {
     const k = name.toLowerCase();

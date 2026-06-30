@@ -17,10 +17,9 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ArrowUpRight, Layers, Search, Mail, Radar, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { listOutreach, type OutreachRow } from "@/lib/linkedin-tracker.functions";
+import { type OutreachRow } from "@/lib/linkedin-tracker.functions";
 import { APPROACHES } from "@/lib/outreach.functions";
 import {
-  listContactStatuses,
   upsertContactStatus,
   CONTACT_STATUSES,
   CONTACT_STATUS_LABEL,
@@ -150,10 +149,17 @@ function MyLeadsPage() {
   const sourceFor = (leadId: string): LeadSource =>
     leadSources?.get(leadId) ?? "manualUpload";
 
-  const fetchOutreach = useServerFn(listOutreach);
   const { data: contacts, isLoading: contactsLoading } = useQuery({
     queryKey: ["linkedin-outreach"],
-    queryFn: () => fetchOutreach(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("linkedin_outreach")
+        .select("*")
+        .order("last_status_change_at", { ascending: false })
+        .limit(1000);
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   const { autoSearch, gAlerts, manualUpload } = useMemo(() => {
@@ -230,10 +236,16 @@ function LeadColumn({
   const [monthOffset, setMonthOffset] = useState(0);
   const [search, setSearch] = useState("");
 
-  const fetchStatuses = useServerFn(listContactStatuses);
   const { data: statusRows } = useQuery({
     queryKey: ["contact-statuses"],
-    queryFn: () => fetchStatuses(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("contact_status")
+        .select("*")
+        .limit(2000);
+      if (error) throw error;
+      return (data ?? []) as ContactStatusRow[];
+    },
   });
   const leadStatusMap = useMemo(() => {
     const priority: ContactProgressStatus[] = [
@@ -414,10 +426,16 @@ function ContactsColumn({
   const [monthOffset, setMonthOffset] = useState(0);
   const [search, setSearch] = useState("");
 
-  const fetchStatuses = useServerFn(listContactStatuses);
   const { data: statusRows } = useQuery({
     queryKey: ["contact-statuses"],
-    queryFn: () => fetchStatuses(),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("contact_status")
+        .select("*")
+        .limit(2000);
+      if (error) throw error;
+      return (data ?? []) as ContactStatusRow[];
+    },
   });
   const statusMap = useMemo(() => {
     const m = new Map<string, ContactProgressStatus>();
