@@ -37,7 +37,7 @@ async function getOrCreateOwnedIcpConfig(userId: string) {
   return inserted;
 }
 
-export const getIcpConfig = createServerFn({ method: "GET" })
+export const getIcpConfig = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     return await getOrCreateOwnedIcpConfig(context.userId);

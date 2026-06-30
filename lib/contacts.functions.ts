@@ -30,7 +30,7 @@ async function getOwnedLead(userId: string, leadId: string) {
   return lead;
 }
 
-export const listLeadContacts = createServerFn({ method: "GET" })
+export const listLeadContacts = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator((d) => z.object({ leadId: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {

@@ -42,7 +42,7 @@ async function assertOwnedLead(userId: string, leadId: string) {
   if (!lead) throw new Error("Lead not found");
 }
 
-export const listContactStatuses = createServerFn({ method: "GET" })
+export const listContactStatuses = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { data, error } = await supabaseAdmin

@@ -12,7 +12,7 @@ function normalizeEmailAddress(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export const listInboundEmailRoutes = createServerFn({ method: "GET" })
+export const listInboundEmailRoutes = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { data, error } = await supabaseAdmin

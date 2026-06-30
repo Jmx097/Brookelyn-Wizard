@@ -97,7 +97,7 @@ export const updateOutreachStatus = createServerFn({ method: "POST" })
     return row;
   });
 
-export const listOutreach = createServerFn({ method: "GET" })
+export const listOutreach = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const { data, error } = await supabaseAdmin
