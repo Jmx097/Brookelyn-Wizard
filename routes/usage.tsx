@@ -1,10 +1,132 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { AuthGuard } from "@/components/auth-guard";
-import { getUsageStats } from "@/lib/usage.functions";
 import { Card } from "@/components/ui/card";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
 
+const COST = {
+  brightdataPerQuery: 0.0015,
+  queriesPerEnrichment: 6,
+  aiPerLeadScored: 0.004,
+  aiPerOutreachDraft: 0.0015,
+  firecrawlPerArticle: 0.002,
+};
+
+async function fetchUsageStats() {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [leadsRes, contactsRes, articlesRes, draftsRes, icpRes] = await Promise.all([
+    supabase
+      .from("leads")
+      .select("id, fit_score, created_at, contacts_enriched_at")
+      .gte("created_at", since),
+    supabase
+      .from("lead_contacts")
+      .select("id, lead_id, created_at")
+      .gte("created_at", since),
+    supabase
+      .from("articles")
+      .select("id, created_at")
+      .gte("created_at", since),
+    supabase
+      .from("outreach_drafts")
+      .select("id, created_at")
+      .gte("created_at", since),
+    supabase
+      .from("icp_config")
+      .select("auto_enrich_contacts_min_score")
+      .maybeSingle(),
+  ]);
+
+  const queryErrors = [
+    leadsRes.error,
+    contactsRes.error,
+    articlesRes.error,
+    draftsRes.error,
+    icpRes.error,
+  ].filter(Boolean);
+
+  if (queryErrors.length > 0) {
+    throw new Error(queryErrors.map((error) => error?.message ?? "Unknown query error").join("; "));
+  }
+
+  const leads = leadsRes.data ?? [];
+  const contacts = contactsRes.data ?? [];
+  const articles = articlesRes.data ?? [];
+  const drafts = draftsRes.data ?? [];
+  const autoEnrichThreshold = (icpRes.data?.auto_enrich_contacts_min_score ?? 0) as number;
+
+  const enrichedLeadIds = new Set(contacts.map((contact) => contact.lead_id));
+  const leadsEnriched30d = enrichedLeadIds.size;
+
+  const days = 30;
+  const leadsPerDay = leads.length / days;
+  const enrichmentsPerDay = leadsEnriched30d / days;
+  const articlesPerDay = articles.length / days;
+  const draftsPerDay = drafts.length / days;
+
+  const projected = {
+    leads: leadsPerDay * 30,
+    enrichments: enrichmentsPerDay * 30,
+    articles: articlesPerDay * 30,
+    drafts: draftsPerDay * 30,
+  };
+
+  let autoEnrichSharePct = 0;
+  if (autoEnrichThreshold > 0 && leads.length > 0) {
+    const above = leads.filter((lead) => (lead.fit_score ?? 0) >= autoEnrichThreshold).length;
+    autoEnrichSharePct = (above / leads.length) * 100;
+    projected.enrichments = Math.max(projected.enrichments, leadsPerDay * 30 * (above / leads.length));
+  }
+
+  const costs = {
+    brightdataLast30: leadsEnriched30d * COST.queriesPerEnrichment * COST.brightdataPerQuery,
+    brightdataProjected: projected.enrichments * COST.queriesPerEnrichment * COST.brightdataPerQuery,
+    aiScoringLast30: leads.length * COST.aiPerLeadScored,
+    aiScoringProjected: projected.leads * COST.aiPerLeadScored,
+    aiOutreachLast30: drafts.length * COST.aiPerOutreachDraft,
+    aiOutreachProjected: projected.drafts * COST.aiPerOutreachDraft,
+    firecrawlLast30: articles.length * COST.firecrawlPerArticle,
+    firecrawlProjected: projected.articles * COST.firecrawlPerArticle,
+  };
+
+  return {
+    window: { days, since },
+    usage: {
+      leads: leads.length,
+      leadsEnriched: leadsEnriched30d,
+      contactsDiscovered: contacts.length,
+      articlesProcessed: articles.length,
+      outreachDrafts: drafts.length,
+    },
+    perDay: {
+      leads: leadsPerDay,
+      enrichments: enrichmentsPerDay,
+      articles: articlesPerDay,
+      drafts: draftsPerDay,
+    },
+    autoEnrich: {
+      threshold: autoEnrichThreshold,
+      sharePct: autoEnrichSharePct,
+    },
+    costs,
+    totals: {
+      last30:
+        costs.brightdataLast30 +
+        costs.aiScoringLast30 +
+        costs.aiOutreachLast30 +
+        costs.firecrawlLast30,
+      projected:
+        costs.brightdataProjected +
+        costs.aiScoringProjected +
+        costs.aiOutreachProjected +
+        costs.firecrawlProjected,
+      fixedMonthly: 0,
+    },
+    assumptions: COST,
+  };
+}
 
 export const Route = createFileRoute("/usage")({
   component: () => (
@@ -20,10 +142,11 @@ const fmtNum = (n: number, digits = 1) =>
   n.toLocaleString("en-US", { maximumFractionDigits: digits });
 
 function UsagePage() {
-  const fetchStats = useServerFn(getUsageStats);
+  const { user, loading: authLoading } = useAuth();
   const { data, isLoading, error } = useQuery({
-    queryKey: ["usage-stats"],
-    queryFn: () => fetchStats(),
+    queryKey: ["usage-stats", user?.id],
+    queryFn: fetchUsageStats,
+    enabled: !!user && !authLoading,
     retry: false,
   });
 
