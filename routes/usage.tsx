@@ -1,132 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { AuthGuard } from "@/components/auth-guard";
 import { Card } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-
-const COST = {
-  brightdataPerQuery: 0.0015,
-  queriesPerEnrichment: 6,
-  aiPerLeadScored: 0.004,
-  aiPerOutreachDraft: 0.0015,
-  firecrawlPerArticle: 0.002,
-};
-
-async function fetchUsageStats() {
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-  const [leadsRes, contactsRes, articlesRes, draftsRes, icpRes] = await Promise.all([
-    supabase
-      .from("leads")
-      .select("id, fit_score, created_at, contacts_enriched_at")
-      .gte("created_at", since),
-    supabase
-      .from("lead_contacts")
-      .select("id, lead_id, created_at")
-      .gte("created_at", since),
-    supabase
-      .from("articles")
-      .select("id, created_at")
-      .gte("created_at", since),
-    supabase
-      .from("outreach_drafts")
-      .select("id, created_at")
-      .gte("created_at", since),
-    supabase
-      .from("icp_config")
-      .select("auto_enrich_contacts_min_score")
-      .maybeSingle(),
-  ]);
-
-  const queryErrors = [
-    leadsRes.error,
-    contactsRes.error,
-    articlesRes.error,
-    draftsRes.error,
-    icpRes.error,
-  ].filter(Boolean);
-
-  if (queryErrors.length > 0) {
-    throw new Error(queryErrors.map((error) => error?.message ?? "Unknown query error").join("; "));
-  }
-
-  const leads = leadsRes.data ?? [];
-  const contacts = contactsRes.data ?? [];
-  const articles = articlesRes.data ?? [];
-  const drafts = draftsRes.data ?? [];
-  const autoEnrichThreshold = (icpRes.data?.auto_enrich_contacts_min_score ?? 0) as number;
-
-  const enrichedLeadIds = new Set(contacts.map((contact) => contact.lead_id));
-  const leadsEnriched30d = enrichedLeadIds.size;
-
-  const days = 30;
-  const leadsPerDay = leads.length / days;
-  const enrichmentsPerDay = leadsEnriched30d / days;
-  const articlesPerDay = articles.length / days;
-  const draftsPerDay = drafts.length / days;
-
-  const projected = {
-    leads: leadsPerDay * 30,
-    enrichments: enrichmentsPerDay * 30,
-    articles: articlesPerDay * 30,
-    drafts: draftsPerDay * 30,
-  };
-
-  let autoEnrichSharePct = 0;
-  if (autoEnrichThreshold > 0 && leads.length > 0) {
-    const above = leads.filter((lead) => (lead.fit_score ?? 0) >= autoEnrichThreshold).length;
-    autoEnrichSharePct = (above / leads.length) * 100;
-    projected.enrichments = Math.max(projected.enrichments, leadsPerDay * 30 * (above / leads.length));
-  }
-
-  const costs = {
-    brightdataLast30: leadsEnriched30d * COST.queriesPerEnrichment * COST.brightdataPerQuery,
-    brightdataProjected: projected.enrichments * COST.queriesPerEnrichment * COST.brightdataPerQuery,
-    aiScoringLast30: leads.length * COST.aiPerLeadScored,
-    aiScoringProjected: projected.leads * COST.aiPerLeadScored,
-    aiOutreachLast30: drafts.length * COST.aiPerOutreachDraft,
-    aiOutreachProjected: projected.drafts * COST.aiPerOutreachDraft,
-    firecrawlLast30: articles.length * COST.firecrawlPerArticle,
-    firecrawlProjected: projected.articles * COST.firecrawlPerArticle,
-  };
-
-  return {
-    window: { days, since },
-    usage: {
-      leads: leads.length,
-      leadsEnriched: leadsEnriched30d,
-      contactsDiscovered: contacts.length,
-      articlesProcessed: articles.length,
-      outreachDrafts: drafts.length,
-    },
-    perDay: {
-      leads: leadsPerDay,
-      enrichments: enrichmentsPerDay,
-      articles: articlesPerDay,
-      drafts: draftsPerDay,
-    },
-    autoEnrich: {
-      threshold: autoEnrichThreshold,
-      sharePct: autoEnrichSharePct,
-    },
-    costs,
-    totals: {
-      last30:
-        costs.brightdataLast30 +
-        costs.aiScoringLast30 +
-        costs.aiOutreachLast30 +
-        costs.firecrawlLast30,
-      projected:
-        costs.brightdataProjected +
-        costs.aiScoringProjected +
-        costs.aiOutreachProjected +
-        costs.firecrawlProjected,
-      fixedMonthly: 0,
-    },
-    assumptions: COST,
-  };
-}
+import { getUsageStats } from "@/lib/usage.functions";
 
 export const Route = createFileRoute("/usage")({
   component: () => (
@@ -141,14 +19,64 @@ const fmtUSD = (n: number) =>
 const fmtNum = (n: number, digits = 1) =>
   n.toLocaleString("en-US", { maximumFractionDigits: digits });
 
+type UsageStats = {
+  window: { days: number; since: string };
+  usage: {
+    leads: number;
+    leadsEnriched: number;
+    contactsDiscovered: number;
+    articlesProcessed: number;
+    outreachDrafts: number;
+  };
+  perDay: {
+    leads: number;
+    enrichments: number;
+    articles: number;
+    drafts: number;
+  };
+  autoEnrich: {
+    threshold: number;
+    sharePct: number;
+  };
+  costs: {
+    brightdataLast30: number;
+    brightdataProjected: number;
+    aiScoringLast30: number;
+    aiScoringProjected: number;
+    aiOutreachLast30: number;
+    aiOutreachProjected: number;
+    firecrawlLast30: number;
+    firecrawlProjected: number;
+  };
+  totals: {
+    last30: number;
+    projected: number;
+    fixedMonthly: number;
+  };
+  assumptions: {
+    brightdataPerQuery: number;
+    queriesPerEnrichment: number;
+    aiPerLeadScored: number;
+    aiPerOutreachDraft: number;
+    firecrawlPerArticle: number;
+  };
+  error?: string;
+};
+
 function UsagePage() {
   const { user, loading: authLoading } = useAuth();
-  const { data, isLoading, error } = useQuery({
+  const usageStatsFn = useServerFn(getUsageStats);
+  const { data, isLoading, error, dataUpdatedAt } = useQuery<UsageStats, Error>({
     queryKey: ["usage-stats", user?.id],
-    queryFn: fetchUsageStats,
+    queryFn: async () => usageStatsFn({}),
     enabled: !!user && !authLoading,
     retry: false,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
+
+  const refreshedAt = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : null;
 
   return (
     <div className="px-10 py-8 max-w-5xl">
@@ -162,7 +90,11 @@ function UsagePage() {
       </div>
 
       {isLoading && <div className="text-sm text-muted-foreground">Loading…</div>}
+      {refreshedAt && !isLoading && (
+        <div className="text-[11px] text-muted-foreground mb-4">Last updated: {refreshedAt}</div>
+      )}
       {error && <div className="text-sm text-destructive">Couldn't load usage stats. Please sign in and try again.</div>}
+      {data?.error && <div className="text-sm text-destructive">{data.error}</div>}
       {!isLoading && !error && !data?.totals && (
         <div className="text-sm text-muted-foreground">No usage data yet. Create a few leads to see cost estimates here.</div>
       )}
